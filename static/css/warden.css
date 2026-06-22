@@ -1,0 +1,41 @@
+.service-tile {
+	transition: border-color 0.2s;
+}
+
+.service-tile:hover {
+	box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.1);
+}
+
+.group-header {
+	cursor: pointer;
+	user-select: none;
+}
+
+.group-header:hover {
+	opacity: 0.8;
+}
+
+#pulse-bar {
+	padding: 0.5rem 0;
+	border-bottom: 1px solid #dee2e6;
+}
+
+#reconnect-overlay {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.8);
+	z-index: 9999;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.reconnect-content {
+	text-align: center;
+}
+
+.status-badge {
+	font-size: 0.7rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
