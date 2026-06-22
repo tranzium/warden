@@ -1,3 +1,4 @@
 .taskflow/
 .env
 node_modules/
+.worktrees/
