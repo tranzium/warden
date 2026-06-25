@@ -34,6 +34,11 @@ export const config = Object.freeze({
 	oauthRedirectUri: required('OAUTH_REDIRECT_URI'),
 	oauthAuthorizeUrl: required('OAUTH_AUTHORIZE_URL'),
 	oauthTokenUrl: required('OAUTH_TOKEN_URL'),
+	oauthConsentKey: process.env.OAUTH_CONSENT_KEY
+		? JSON.parse(process.env.OAUTH_CONSENT_KEY) as JsonWebKey
+		: null,
+
+	orbitApiUrl: process.env.ORBIT_API_URL ?? '',
 
 	nssmPath: process.env.NSSM_PATH ?? 'nssm',
 	wardenServiceName: process.env.WARDEN_SERVICE_NAME ?? 'warden',

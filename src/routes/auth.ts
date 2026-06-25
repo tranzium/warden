@@ -1,6 +1,9 @@
 import { parseCookies, verifySession, verifyPkce, signSession, signPkce, sessionCookie, clearSessionCookie, pkceCookie, clearPkceCookie } from '../auth/cookies'
 import { buildAuthorizeUrl, exchangeCode, generatePkce } from '../auth/orbit'
+import { resolveChallenge, authenticateUser, signAndSubmitConsent } from '../auth/consent'
+import { config } from '../shared/config'
 import { loginPage } from '../views/login'
+import { consentPage, consentErrorPage } from '../views/consent'
 import { redirect } from '../shared/http'
 
 export function loginHandler(req: Request): Response {
@@ -59,4 +62,63 @@ export async function callbackHandler(req: Request): Promise<Response> {
 
 export function logoutHandler(): Response {
 	return redirect('/', clearSessionCookie())
+}
+
+export async function consentGetHandler(req: Request): Promise<Response> {
+	if (!config.oauthConsentKey || !config.orbitApiUrl) {
+		return consentErrorPage('Consent flow not configured. Set OAUTH_CONSENT_KEY and ORBIT_API_URL.')
+	}
+
+	const url = new URL(req.url)
+	const challengeId = url.searchParams.get('challenge')
+	if (!challengeId) return consentErrorPage('Missing challenge parameter.')
+
+	const challenge = await resolveChallenge(challengeId)
+	if (!challenge) return consentErrorPage('Invalid or expired authorization challenge.')
+
+	const scopes = challenge.scope.split(' ').filter(Boolean)
+	return consentPage(challenge.client_name, scopes, challengeId)
+}
+
+export async function consentPostHandler(req: Request): Promise<Response> {
+	if (!config.oauthConsentKey || !config.orbitApiUrl) {
+		return consentErrorPage('Consent flow not configured.')
+	}
+
+	const form = await req.formData()
+	const challengeId = String(form.get('challenge') ?? '')
+	const decision = String(form.get('decision') ?? '')
+	const email = String(form.get('email') ?? '')
+	const password = String(form.get('password') ?? '')
+
+	if (!challengeId) return consentErrorPage('Missing challenge.')
+
+	const challenge = await resolveChallenge(challengeId)
+	if (!challenge) return consentErrorPage('Invalid or expired authorization challenge.')
+	const scopes = challenge.scope.split(' ').filter(Boolean)
+
+	if (decision === 'deny') {
+		// Subject is required by orbit-oauth2 even for denials; use a placeholder
+		const result = await signAndSubmitConsent(challengeId, 'denied', challenge.scope, false)
+		if (!result) return consentErrorPage('Failed to submit consent decision.')
+		return new Response(null, { status: 302, headers: { Location: result.redirect_url } })
+	}
+
+	if (decision === 'approve') {
+		if (!email || !password) {
+			return consentPage(challenge.client_name, scopes, challengeId, 'Email and password are required.')
+		}
+
+		const user = await authenticateUser(email, password)
+		if (!user) {
+			return consentPage(challenge.client_name, scopes, challengeId, 'Invalid credentials.')
+		}
+
+		const result = await signAndSubmitConsent(challengeId, user.id, challenge.scope, true)
+		if (!result) return consentErrorPage('Failed to submit consent. Please try again.')
+
+		return new Response(null, { status: 302, headers: { Location: result.redirect_url } })
+	}
+
+	return consentErrorPage('Invalid decision.')
 }

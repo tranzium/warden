@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { authMiddleware } from './auth/middleware'
-import { loginHandler, loginStartHandler, callbackHandler, logoutHandler } from './routes/auth'
+import { loginHandler, loginStartHandler, callbackHandler, logoutHandler, consentGetHandler, consentPostHandler } from './routes/auth'
 import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, restartHandler, registerHandler, unregisterHandler } from './routes/services'
 import { html404 } from './views/html'
 
@@ -28,6 +28,8 @@ export async function router(req: Request): Promise<Response> {
 	// Auth routes — no auth required
 	if (pathname === '/login' && method === 'GET') return loginHandler(req)
 	if (pathname === '/login/start' && method === 'GET') return loginStartHandler()
+	if ((pathname === '/login/consent' || pathname === '/login/consent/') && method === 'GET') return consentGetHandler(req)
+	if ((pathname === '/login/consent' || pathname === '/login/consent/') && method === 'POST') return consentPostHandler(req)
 	if (pathname === '/callback' && method === 'GET') return callbackHandler(req)
 	if (pathname === '/logout' && method === 'POST') return logoutHandler()
 
