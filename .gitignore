@@ -3,3 +3,4 @@
 .worktrees/
 node_modules/
 .env
+data/
