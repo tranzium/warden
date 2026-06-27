@@ -76,7 +76,7 @@ async function signCanonical(canonical: string, privateKey: JsonWebKey): Promise
 		const hash = hashMap[crv]
 		if (!hash) throw new Error(`Unsupported curve: ${crv}`)
 		key = await crypto.subtle.importKey('jwk', privateKey, { name: 'ECDSA', namedCurve: crv }, false, ['sign'])
-		algorithm = { name: 'ECDSA', hash }
+		algorithm = { name: 'ECDSA', hash } as EcdsaParams
 	}
 
 	const sig = new Uint8Array(await crypto.subtle.sign(algorithm, key, msg))

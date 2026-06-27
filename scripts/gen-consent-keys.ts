@@ -25,3 +25,5 @@ console.log()
 console.log('Set OAUTH_CONSENT_KEY in .env to the private key JSON string (single line).')
 console.log('Update the OAuth2 client consent_jwk with the public key via:')
 console.log('  PATCH /internal/oauth2/clients/<client_id> { "consent_jwk": <public key JSON> }')
+
+export {}

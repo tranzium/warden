@@ -34,9 +34,16 @@ export const config = Object.freeze({
 	oauthRedirectUri: required('OAUTH_REDIRECT_URI'),
 	oauthAuthorizeUrl: required('OAUTH_AUTHORIZE_URL'),
 	oauthTokenUrl: required('OAUTH_TOKEN_URL'),
-	oauthConsentKey: process.env.OAUTH_CONSENT_KEY
-		? JSON.parse(process.env.OAUTH_CONSENT_KEY) as JsonWebKey
-		: null,
+	oauthConsentKey: (() => {
+		const raw = process.env.OAUTH_CONSENT_KEY
+		if (!raw) return null
+		try {
+			return JSON.parse(raw) as JsonWebKey
+		} catch {
+			console.error('OAUTH_CONSENT_KEY is not valid JSON')
+			process.exit(1)
+		}
+	})(),
 
 	orbitApiUrl: process.env.ORBIT_API_URL ?? '',
 

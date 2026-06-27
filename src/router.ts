@@ -19,7 +19,7 @@ export async function router(req: Request): Promise<Response> {
 	// Static files — no auth
 	if (pathname.startsWith('/static/')) {
 		const filePath = resolve(staticDir, pathname.slice('/static/'.length))
-		if (!filePath.startsWith(staticDir)) return new Response('Forbidden', { status: 403 })
+		if (!filePath.startsWith(staticDir + '/') && !filePath.startsWith(staticDir + '\\')) return new Response('Forbidden', { status: 403 })
 		const file = Bun.file(filePath)
 		if (await file.exists()) return new Response(file)
 		return new Response('Not found', { status: 404 })

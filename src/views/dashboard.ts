@@ -123,11 +123,11 @@ function renderGroup(groupName: string, services: ServiceView[], grants: Record<
 	return `
 		<div class="service-group mb-4">
 			<h5 class="d-flex align-items-center gap-2 mb-3 group-header" role="button"
-				data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="${hasProblems ? 'true' : 'true'}">
+				data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="${hasProblems ? 'true' : 'false'}">
 				<span>${esc(groupName)}</span>
 				<span class="badge ${badgeClass}">${running}/${total}</span>
 			</h5>
-			<div class="collapse show" id="${collapseId}">
+			<div class="collapse${hasProblems ? ' show' : ''}" id="${collapseId}">
 				<div class="row g-3">
 					${services.map(s => renderTile(s, grants)).join('')}
 				</div>
