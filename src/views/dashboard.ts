@@ -60,6 +60,25 @@ function isPending(status: ServiceState): boolean {
 	return status.endsWith('Pending')
 }
 
+function renderManageMenu(svc: ServiceView, grants: Record<string, boolean>): string {
+	if (!grants['services.register']) return ''
+	return `
+		<div class="dropdown">
+			<button class="btn btn-sm btn-outline-secondary border-0 py-0 px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false">&#8942;</button>
+			<ul class="dropdown-menu dropdown-menu-end">
+				<li><a class="dropdown-item edit-btn" href="#"
+					data-service="${esc(svc.name)}"
+					data-display="${esc(svc.display ?? '')}"
+					data-description="${esc(svc.description ?? '')}"
+					data-group="${esc(svc.group_name ?? '')}"
+					data-managed="${svc.managed ? '1' : '0'}">Edit</a></li>
+				<li><a class="dropdown-item text-danger delete-btn" href="#"
+					data-service="${esc(svc.name)}"
+					data-confirm="Unregister ${esc(svc.display ?? svc.name)}? This only removes it from Warden — the Windows service itself is untouched.">Delete</a></li>
+			</ul>
+		</div>`
+}
+
 function renderActionButtons(svc: ServiceView, grants: Record<string, boolean>): string {
 	if (!svc.managed || isPending(svc.status)) return ''
 
@@ -101,7 +120,10 @@ function renderTile(svc: ServiceView, grants: Record<string, boolean>): string {
 				<div class="card-body">
 					<div class="d-flex justify-content-between align-items-start mb-1">
 						<h6 class="card-title mb-0">${esc(svc.display ?? svc.name)}</h6>
-						<span class="badge ${statusBadgeClass(svc.status)} status-badge">${esc(svc.status)}</span>
+						<div class="d-flex align-items-center gap-1">
+							<span class="badge ${statusBadgeClass(svc.status)} status-badge">${esc(svc.status)}</span>
+							${renderManageMenu(svc, grants)}
+						</div>
 					</div>
 					${svc.description ? `<p class="card-text text-muted small mb-0">${esc(svc.description)}</p>` : ''}
 					${renderActionButtons(svc, grants)}
@@ -135,12 +157,68 @@ function renderGroup(groupName: string, services: ServiceView[], grants: Record<
 		</div>`
 }
 
-function renderPulseBar(pulse: PulseData): string {
+function renderPulseBar(pulse: PulseData, grants: Record<string, boolean>): string {
 	const parts: string[] = []
 	if (pulse.running > 0) parts.push(`<span class="badge bg-success">${pulse.running} running</span>`)
 	if (pulse.stopped > 0) parts.push(`<span class="badge bg-danger">${pulse.stopped} stopped</span>`)
 	if (pulse.other > 0) parts.push(`<span class="badge bg-secondary">${pulse.other} other</span>`)
-	return `<div id="pulse-bar" class="d-flex gap-2 mb-3">${parts.join('')}</div>`
+
+	const registerButton = grants['services.register']
+		? `<button type="button" class="btn btn-primary btn-sm" id="register-service-btn">+ Register service</button>`
+		: ''
+
+	return `<div id="pulse-bar" class="d-flex justify-content-between align-items-center gap-2 mb-3">
+		<div class="d-flex gap-2">${parts.join('')}</div>
+		${registerButton}
+	</div>`
+}
+
+function renderServiceModal(groups: string[]): string {
+	const groupOptions = groups.map(g => `<option value="${esc(g)}">`).join('')
+	return `
+	<div class="modal fade" id="service-modal" tabindex="-1" aria-hidden="true">
+		<div class="modal-dialog">
+			<div class="modal-content">
+				<form id="service-form">
+					<div class="modal-header">
+						<h5 class="modal-title" id="service-modal-title">Register service</h5>
+						<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+					</div>
+					<div class="modal-body">
+						<div class="alert alert-danger d-none" id="service-form-error"></div>
+						<input type="hidden" id="svc-mode" value="register">
+						<input type="hidden" id="svc-original-name" value="">
+						<div class="mb-3">
+							<label for="svc-name" class="form-label">Service name</label>
+							<input type="text" class="form-control" id="svc-name" required>
+							<div class="form-text">Must exactly match the Windows/NSSM service name.</div>
+						</div>
+						<div class="mb-3">
+							<label for="svc-display" class="form-label">Display name</label>
+							<input type="text" class="form-control" id="svc-display">
+						</div>
+						<div class="mb-3">
+							<label for="svc-description" class="form-label">Description</label>
+							<textarea class="form-control" id="svc-description" rows="2"></textarea>
+						</div>
+						<div class="mb-3">
+							<label for="svc-group" class="form-label">Group</label>
+							<input type="text" class="form-control" id="svc-group" list="svc-groups-list">
+							<datalist id="svc-groups-list">${groupOptions}</datalist>
+						</div>
+						<div class="form-check">
+							<input type="checkbox" class="form-check-input" id="svc-managed" checked>
+							<label class="form-check-label" for="svc-managed">Managed (show live status and controls)</label>
+						</div>
+					</div>
+					<div class="modal-footer">
+						<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+						<button type="submit" class="btn btn-primary" id="service-form-submit">Register</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>`
 }
 
 export function dashboardPage(services: ServiceView[], grants: Record<string, boolean>, opts: PageOpts): Response {
@@ -181,7 +259,7 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 	})
 
 	const body = `
-		${renderPulseBar(pulse)}
+		${renderPulseBar(pulse, grants)}
 		<div id="services-container">
 			${groupHtml}
 		</div>
@@ -191,6 +269,7 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 				<h4 class="text-light">Reconnecting to Warden...</h4>
 			</div>
 		</div>
+		${grants['services.register'] ? renderServiceModal(Array.from(new Set(services.map(s => s.group_name).filter((g): g is string => !!g)))) : ''}
 		<script>window.__WARDEN__ = ${wardenConfig};</script>`
 
 	return page('Dashboard', body, { ...opts, scripts: true })

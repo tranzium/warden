@@ -1,4 +1,4 @@
-import { listServices, getService, registerService, unregisterService, type ServiceRow } from '../db/client'
+import { listServices, getService, registerService, unregisterService, updateService, type ServiceRow } from '../db/client'
 import { nssmStatus, nssmStart, nssmStop, nssmRestart, isSelf, selfRestart, type ServiceState } from '../nssm/client'
 import { type AuthContext, hasPermission } from '../auth/middleware'
 import { ok, created, noContent, badRequest, forbidden, notFound, unprocessable } from '../shared/http'
@@ -145,4 +145,28 @@ export function unregisterHandler(ctx: AuthContext, name: string): Response {
 	}
 
 	return noContent()
+}
+
+export async function updateHandler(ctx: AuthContext, name: string, req: Request): Promise<Response> {
+	if (!hasPermission(ctx, 'services.register')) return forbidden()
+
+	if (!getService(name)) {
+		return notFound(`Service '${name}' not found`)
+	}
+
+	let body: Record<string, unknown>
+	try {
+		body = (await req.json()) as Record<string, unknown>
+	} catch {
+		return badRequest('Invalid JSON body')
+	}
+
+	const row = updateService(name, {
+		display: typeof body.display === 'string' ? body.display : body.display === null ? null : undefined,
+		description: typeof body.description === 'string' ? body.description : body.description === null ? null : undefined,
+		group_name: typeof body.group_name === 'string' ? body.group_name : body.group_name === null ? null : undefined,
+		managed: typeof body.managed === 'boolean' ? body.managed : undefined,
+	})
+
+	return ok(row!)
 }
