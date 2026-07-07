@@ -57,6 +57,27 @@ export async function nssmRestart(name: string): Promise<{ ok: boolean; output: 
 	return { ok: exitCode === 0, output: stdout || stderr }
 }
 
+export async function listWindowsServices(): Promise<string[]> {
+	try {
+		const proc = Bun.spawn(['sc', 'query', 'state=', 'all'], {
+			stdout: 'pipe',
+			stderr: 'pipe',
+		})
+		const stdout = await new Response(proc.stdout).text()
+		await proc.exited
+
+		const names: string[] = []
+		for (const line of stdout.split('\n')) {
+			const match = line.match(/^SERVICE_NAME:\s*(.+?)\s*\r?$/)
+			if (match) names.push(match[1]!)
+		}
+		names.sort((a, b) => a.localeCompare(b))
+		return names
+	} catch {
+		return []
+	}
+}
+
 export function isSelf(serviceName: string): boolean {
 	return serviceName === config.wardenServiceName
 }

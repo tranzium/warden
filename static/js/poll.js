@@ -36,10 +36,49 @@
 		return status.endsWith('Pending')
 	}
 
-	// --- DOM update ---
+	function esc(s) {
+		var d = document.createElement('div')
+		d.textContent = s
+		return d.innerHTML
+	}
+
+	// --- Toasts ---
+
+	function showToast(message, variant) {
+		variant = variant || 'success'
+		var container = document.getElementById('toast-container')
+		if (!container) return
+
+		var el = document.createElement('div')
+		el.className = 'toast align-items-center text-bg-' + variant + ' border-0'
+		el.setAttribute('role', 'alert')
+		el.setAttribute('aria-live', 'assertive')
+		el.setAttribute('aria-atomic', 'true')
+
+		var flex = document.createElement('div')
+		flex.className = 'd-flex'
+		var body = document.createElement('div')
+		body.className = 'toast-body'
+		body.textContent = message
+		var closeBtn = document.createElement('button')
+		closeBtn.type = 'button'
+		closeBtn.className = 'btn-close btn-close-white me-2 m-auto'
+		closeBtn.setAttribute('data-bs-dismiss', 'toast')
+		flex.appendChild(body)
+		flex.appendChild(closeBtn)
+		el.appendChild(flex)
+		container.appendChild(el)
+
+		if (!window.bootstrap) return
+		var toast = new bootstrap.Toast(el, { delay: 4000 })
+		el.addEventListener('hidden.bs.toast', function () { el.remove() })
+		toast.show()
+	}
+
+	// --- Pulse bar / self status ---
 
 	function updatePulseBar(pulse) {
-		var el = document.getElementById('pulse-bar')
+		var el = document.getElementById('pulse-badges')
 		if (!el) return
 		var parts = []
 		if (pulse.running > 0) parts.push('<span class="badge bg-success">' + pulse.running + ' running</span>')
@@ -57,7 +96,9 @@
 		el.title = 'Warden uptime: ' + display + ' | v' + self.version
 	}
 
-	function buildManageMenu(svc) {
+	// --- Rendering (HTML string builders, used both for fresh nodes and initial page) ---
+
+	function manageMenuHtml(svc) {
 		if (!grants['services.register']) return ''
 		return '<div class="dropdown">' +
 			'<button class="btn btn-sm btn-outline-secondary border-0 py-0 px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false">&#8942;</button>' +
@@ -70,11 +111,12 @@
 			' data-managed="' + (svc.managed ? '1' : '0') + '">Edit</a></li>' +
 			'<li><a class="dropdown-item text-danger delete-btn" href="#"' +
 			' data-service="' + esc(svc.name) + '"' +
+			' data-display="' + esc(svc.display || svc.name) + '"' +
 			' data-confirm="Unregister ' + esc(svc.display || svc.name) + '? This only removes it from Warden — the Windows service itself is untouched.">Delete</a></li>' +
 			'</ul></div>'
 	}
 
-	function buildActionButtons(svc) {
+	function actionButtonsHtml(svc) {
 		if (!svc.managed || isPending(svc.status)) return ''
 		var isSelf = svc.name === wardenServiceName
 		var btns = []
@@ -100,13 +142,7 @@
 		return btns.length ? '<div class="btn-group mt-2">' + btns.join('') + '</div>' : ''
 	}
 
-	function esc(s) {
-		var d = document.createElement('div')
-		d.textContent = s
-		return d.innerHTML
-	}
-
-	function renderTile(svc) {
+	function tileHtml(svc) {
 		return '<div class="col-xl-3 col-lg-4 col-md-6" data-service="' + esc(svc.name) + '">' +
 			'<div class="card service-tile ' + tileClass(svc.status) + '">' +
 			'<div class="card-body">' +
@@ -114,30 +150,88 @@
 			'<h6 class="card-title mb-0">' + esc(svc.display || svc.name) + '</h6>' +
 			'<div class="d-flex align-items-center gap-1">' +
 			'<span class="badge ' + badgeClass(svc.status) + ' status-badge">' + esc(svc.status) + '</span>' +
-			buildManageMenu(svc) +
+			manageMenuHtml(svc) +
 			'</div>' +
 			'</div>' +
 			(svc.description ? '<p class="card-text text-muted small mb-0">' + esc(svc.description) + '</p>' : '') +
-			buildActionButtons(svc) +
+			actionButtonsHtml(svc) +
 			'</div></div></div>'
 	}
 
-	function renderGroup(name, services) {
+	function groupHtml(name, services) {
 		var running = services.filter(function (s) { return s.status === 'Running' }).length
 		var total = services.length
 		var allUp = running === total
 		var bc = allUp ? 'bg-success' : 'bg-warning text-dark'
 		var cid = 'group-' + name.replace(/\s+/g, '-').toLowerCase()
 
-		return '<div class="service-group mb-4">' +
+		return '<div class="service-group mb-4" data-group-name="' + esc(name) + '">' +
 			'<h5 class="d-flex align-items-center gap-2 mb-3 group-header" role="button" data-bs-toggle="collapse" data-bs-target="#' + cid + '" aria-expanded="true">' +
 			'<span>' + esc(name) + '</span>' +
-			'<span class="badge ' + bc + '">' + running + '/' + total + '</span>' +
+			'<span class="badge ' + bc + ' group-pulse">' + running + '/' + total + '</span>' +
 			'</h5>' +
 			'<div class="collapse show" id="' + cid + '">' +
-			'<div class="row g-3">' +
-			services.map(renderTile).join('') +
-			'</div></div></div>'
+			'<div class="row g-3"></div></div></div>'
+	}
+
+	function createElementFromHtml(html) {
+		var wrapper = document.createElement('div')
+		wrapper.innerHTML = html
+		return wrapper.firstElementChild
+	}
+
+	// --- Tile / group patching ---
+
+	function patchTile(el, svc) {
+		var card = el.querySelector('.service-tile')
+		card.className = 'card service-tile ' + tileClass(svc.status)
+
+		el.querySelector('.card-title').textContent = svc.display || svc.name
+
+		var badge = el.querySelector('.status-badge')
+		badge.className = 'badge ' + badgeClass(svc.status) + ' status-badge'
+		badge.textContent = svc.status
+
+		var body = card.querySelector('.card-body')
+		var header = body.querySelector('.d-flex.justify-content-between')
+		var descEl = body.querySelector('.card-text')
+		if (svc.description) {
+			if (!descEl) {
+				descEl = document.createElement('p')
+				descEl.className = 'card-text text-muted small mb-0'
+				header.insertAdjacentElement('afterend', descEl)
+			}
+			descEl.textContent = svc.description
+		} else if (descEl) {
+			descEl.remove()
+		}
+
+		var btnGroup = body.querySelector('.btn-group')
+		if (btnGroup) btnGroup.remove()
+		var btnHtml = actionButtonsHtml(svc)
+		if (btnHtml) body.insertAdjacentHTML('beforeend', btnHtml)
+
+		var editBtn = el.querySelector('.edit-btn')
+		if (editBtn) {
+			editBtn.dataset.display = svc.display || ''
+			editBtn.dataset.description = svc.description || ''
+			editBtn.dataset.group = svc.group_name || ''
+			editBtn.dataset.managed = svc.managed ? '1' : '0'
+		}
+		var deleteBtn = el.querySelector('.delete-btn')
+		if (deleteBtn) {
+			deleteBtn.dataset.confirm = 'Unregister ' + (svc.display || svc.name) + '? This only removes it from Warden — the Windows service itself is untouched.'
+		}
+	}
+
+	function patchGroupBadge(groupEl, services) {
+		var running = services.filter(function (s) { return s.status === 'Running' }).length
+		var total = services.length
+		var allUp = running === total
+		var badge = groupEl.querySelector('.group-pulse')
+		if (!badge) return
+		badge.className = 'badge ' + (allUp ? 'bg-success' : 'bg-warning text-dark') + ' group-pulse'
+		badge.textContent = running + '/' + total
 	}
 
 	var STATE_PRIORITY = {
@@ -174,6 +268,9 @@
 			container.innerHTML = '<div class="text-center text-muted mt-5"><h4>No services registered</h4><p>Register services to start managing them.</p></div>'
 			return
 		}
+		if (container.querySelector('.text-center.text-muted')) {
+			container.innerHTML = ''
+		}
 
 		// Group
 		var groups = {}
@@ -190,13 +287,51 @@
 			})
 		})
 
-		var html = Object.keys(groups).sort().map(function (g) {
-			return renderGroup(g, groups[g])
-		}).join('')
+		// Index existing tiles across the whole container, regardless of current group,
+		// so a service that moved groups (edited group_name) is moved rather than recreated.
+		var existingTiles = {}
+		container.querySelectorAll('[data-service]').forEach(function (el) {
+			existingTiles[el.dataset.service] = el
+		})
 
-		container.innerHTML = html
-		bindActionButtons()
-		bindManageMenu()
+		var existingGroups = {}
+		container.querySelectorAll('.service-group').forEach(function (el) {
+			existingGroups[el.dataset.groupName] = el
+		})
+
+		var groupNames = Object.keys(groups).sort()
+
+		groupNames.forEach(function (name) {
+			var groupEl = existingGroups[name]
+			if (!groupEl) {
+				groupEl = createElementFromHtml(groupHtml(name, groups[name]))
+			} else {
+				patchGroupBadge(groupEl, groups[name])
+				delete existingGroups[name]
+			}
+			container.appendChild(groupEl)
+
+			var row = groupEl.querySelector('.row')
+			groups[name].forEach(function (svc) {
+				var tile = existingTiles[svc.name]
+				if (tile) {
+					patchTile(tile, svc)
+					delete existingTiles[svc.name]
+				} else {
+					tile = createElementFromHtml(tileHtml(svc))
+				}
+				row.appendChild(tile)
+			})
+		})
+
+		// Remove groups no longer present
+		Object.keys(existingGroups).forEach(function (name) {
+			existingGroups[name].remove()
+		})
+		// Remove tiles for services no longer present (e.g. unregistered elsewhere)
+		Object.keys(existingTiles).forEach(function (name) {
+			existingTiles[name].remove()
+		})
 	}
 
 	// --- Actions ---
@@ -212,11 +347,15 @@
 					return
 				}
 				if (res.status === 403) {
-					alert('Permission denied')
+					showToast('Permission denied', 'danger')
 					return
 				}
 				if (isSelfRestart) {
 					showReconnectOverlay()
+					return
+				}
+				if (!res.ok) {
+					showToast('Failed to ' + action + ' service', 'danger')
 					return
 				}
 				// Trigger an immediate poll to reflect the change
@@ -228,22 +367,8 @@
 					return
 				}
 				console.error('Action failed:', err)
+				showToast('Action failed — check connection', 'danger')
 			})
-	}
-
-	function bindActionButtons() {
-		document.querySelectorAll('.action-btn').forEach(function (btn) {
-			btn.addEventListener('click', function (e) {
-				e.preventDefault()
-				var service = this.dataset.service
-				var action = this.dataset.action
-				var confirmMsg = this.dataset.confirm
-				var isSelfRestart = this.dataset.self === 'true'
-
-				if (confirmMsg && !confirm(confirmMsg)) return
-				performAction(service, action, isSelfRestart)
-			})
-		})
 	}
 
 	// --- Register / edit / delete ---
@@ -289,8 +414,23 @@
 		hideFormError()
 	}
 
+	function loadAvailableServices() {
+		var datalist = document.getElementById('svc-available-list')
+		if (!datalist) return
+		fetch('/services/available', { headers: { Accept: 'application/json' } })
+			.then(function (res) { return res.ok ? res.json() : null })
+			.then(function (data) {
+				if (!data) return
+				datalist.innerHTML = (data.services || []).map(function (n) {
+					return '<option value="' + esc(n) + '">'
+				}).join('')
+			})
+			.catch(function () { /* picker is a convenience — free-typing still works */ })
+	}
+
 	function openRegisterModal() {
 		resetServiceForm()
+		loadAvailableServices()
 		var modal = getServiceModal()
 		if (modal) modal.show()
 	}
@@ -312,7 +452,7 @@
 		if (modal) modal.show()
 	}
 
-	function deleteService(name) {
+	function deleteService(name, label) {
 		fetch('/services/' + encodeURIComponent(name), {
 			method: 'DELETE',
 			headers: { Accept: 'application/json' },
@@ -323,31 +463,20 @@
 					return
 				}
 				if (res.status === 403) {
-					alert('Permission denied')
+					showToast('Permission denied', 'danger')
 					return
 				}
+				if (!res.ok) {
+					showToast('Failed to remove ' + label, 'danger')
+					return
+				}
+				showToast(label + ' removed', 'success')
 				poll()
 			})
 			.catch(function (err) {
 				console.error('Delete failed:', err)
+				showToast('Delete failed — check connection', 'danger')
 			})
-	}
-
-	function bindManageMenu() {
-		document.querySelectorAll('.edit-btn').forEach(function (el) {
-			el.addEventListener('click', function (e) {
-				e.preventDefault()
-				openEditModal(this)
-			})
-		})
-		document.querySelectorAll('.delete-btn').forEach(function (el) {
-			el.addEventListener('click', function (e) {
-				e.preventDefault()
-				var confirmMsg = this.dataset.confirm
-				if (confirmMsg && !confirm(confirmMsg)) return
-				deleteService(this.dataset.service)
-			})
-		})
 	}
 
 	function bindServiceForm() {
@@ -401,6 +530,7 @@
 					if (res.ok) {
 						var modal = getServiceModal()
 						if (modal) modal.hide()
+						showToast(mode === 'edit' ? 'Service updated' : 'Service registered', 'success')
 						poll()
 						return
 					}
@@ -411,6 +541,37 @@
 				.catch(function () {
 					showFormError('Network error — please try again')
 				})
+		})
+	}
+
+	// --- Delegated event bindings (bound once; new tiles work automatically) ---
+
+	function bindDelegatedEvents() {
+		document.addEventListener('click', function (e) {
+			var actionBtn = e.target.closest('.action-btn')
+			if (actionBtn) {
+				e.preventDefault()
+				var confirmMsg = actionBtn.dataset.confirm
+				if (confirmMsg && !confirm(confirmMsg)) return
+				performAction(actionBtn.dataset.service, actionBtn.dataset.action, actionBtn.dataset.self === 'true')
+				return
+			}
+
+			var editBtn = e.target.closest('.edit-btn')
+			if (editBtn) {
+				e.preventDefault()
+				openEditModal(editBtn)
+				return
+			}
+
+			var deleteBtn = e.target.closest('.delete-btn')
+			if (deleteBtn) {
+				e.preventDefault()
+				var delConfirm = deleteBtn.dataset.confirm
+				if (delConfirm && !confirm(delConfirm)) return
+				deleteService(deleteBtn.dataset.service, deleteBtn.dataset.display || deleteBtn.dataset.service)
+				return
+			}
 		})
 	}
 
@@ -474,8 +635,7 @@
 
 	// --- Init ---
 
-	bindActionButtons()
-	bindManageMenu()
+	bindDelegatedEvents()
 	bindServiceForm()
 	startPolling()
 })()
