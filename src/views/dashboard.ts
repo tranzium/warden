@@ -140,7 +140,7 @@ function renderActionButtons(svc: ServiceView, grants: Record<string, boolean>):
 
 function renderTile(svc: ServiceView, grants: Record<string, boolean>): string {
 	return `
-		<div class="col-xl-3 col-lg-4 col-md-6${svc.hidden ? ' svc-hidden' : ''}" data-service="${esc(svc.name)}" data-hidden="${svc.hidden ? '1' : '0'}" data-missing="${svc.missing ? '1' : '0'}">
+		<div class="service-col col-xl-3 col-lg-4 col-md-6${svc.hidden ? ' svc-hidden' : ''}" data-service="${esc(svc.name)}" data-hidden="${svc.hidden ? '1' : '0'}" data-missing="${svc.missing ? '1' : '0'}">
 			<div class="card service-tile ${tileClass(svc)}">
 				<div class="card-body">
 					<div class="d-flex justify-content-between align-items-start mb-1">
@@ -316,6 +316,9 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 			<p>NSSM-managed services appear here automatically.</p>
 		</div>`
 		: Array.from(groups.entries())
+				// Alphabetical by group name, matching the poll's client-side order —
+				// otherwise groups visibly reshuffle on the first poll after page load
+				.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 				.map(([name, svcs]) => renderGroup(name, svcs, grants))
 				.join('')
 
