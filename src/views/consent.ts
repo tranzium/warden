@@ -21,11 +21,11 @@ export function consentPage(clientName: string, scopes: string[], challengeId: s
 					<input type="hidden" name="challenge" value="${esc(challengeId)}">
 					<div class="mb-3">
 						<label for="email" class="form-label">Email</label>
-						<input type="email" class="form-control" id="email" name="email" required autofocus>
+						<input type="email" class="form-control" id="email" name="email" autocomplete="username email" required autofocus>
 					</div>
 					<div class="mb-3">
 						<label for="password" class="form-label">Password</label>
-						<input type="password" class="form-control" id="password" name="password" required>
+						<input type="password" class="form-control" id="password" name="password" autocomplete="current-password" required>
 					</div>
 					<div class="d-flex gap-2">
 						<button type="submit" name="decision" value="approve" class="btn btn-primary flex-fill">Allow</button>

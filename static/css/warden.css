@@ -51,3 +51,13 @@
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
 }
+
+/* Hidden services (and groups where every service is hidden) only render
+   when the "Show hidden" toggle sets body.show-hidden */
+body:not(.show-hidden) .svc-hidden {
+	display: none !important;
+}
+
+body.show-hidden .svc-hidden .service-tile {
+	opacity: 0.6;
+}

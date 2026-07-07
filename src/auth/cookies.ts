@@ -47,9 +47,9 @@ function verify(value: string): unknown {
 	return decode(encoded)
 }
 
-// Session cookie: stores the OAuth2 access token
-export function signSession(accessToken: string): string {
-	return sign({ t: 's', token: accessToken })
+// Session cookie: stores the warden session id (the access token lives server-side)
+export function signSession(sessionId: string): string {
+	return sign({ t: 's', sid: sessionId })
 }
 
 export function verifySession(value: string): string | null {
@@ -58,9 +58,9 @@ export function verifySession(value: string): string | null {
 		data !== null &&
 		typeof data === 'object' &&
 		(data as Record<string, unknown>).t === 's' &&
-		typeof (data as Record<string, unknown>).token === 'string'
+		typeof (data as Record<string, unknown>).sid === 'string'
 	) {
-		return (data as { token: string }).token
+		return (data as { sid: string }).sid
 	}
 	return null
 }
@@ -87,8 +87,10 @@ export function verifyPkce(value: string): { verifier: string; state: string } |
 
 const secureSuffix = config.secure ? '; Secure' : ''
 
+// Max-Age makes the cookie persistent — without it, mobile browsers drop the
+// session as soon as the browser closes, regardless of server-side expiry
 export function sessionCookie(value: string): string {
-	return `warden_session=${value}; HttpOnly; SameSite=Lax; Path=/${secureSuffix}`
+	return `warden_session=${value}; Max-Age=${config.sessionTtlHours * 3600}; HttpOnly; SameSite=Lax; Path=/${secureSuffix}`
 }
 
 export function clearSessionCookie(): string {

@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import { authMiddleware } from './auth/middleware'
 import { loginHandler, loginStartHandler, callbackHandler, logoutHandler, consentGetHandler, consentPostHandler } from './routes/auth'
-import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, restartHandler, registerHandler, unregisterHandler, updateHandler, availableHandler } from './routes/services'
+import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, restartHandler, installHandler, uninstallHandler, unregisterHandler, updateHandler } from './routes/services'
 import { html404 } from './views/html'
 
 const staticDir = resolve(import.meta.dir, '..', 'static')
@@ -31,7 +31,7 @@ export async function router(req: Request): Promise<Response> {
 	if ((pathname === '/login/consent' || pathname === '/login/consent/') && method === 'GET') return consentGetHandler(req)
 	if ((pathname === '/login/consent' || pathname === '/login/consent/') && method === 'POST') return consentPostHandler(req)
 	if (pathname === '/callback' && method === 'GET') return callbackHandler(req)
-	if (pathname === '/logout' && method === 'POST') return logoutHandler()
+	if (pathname === '/logout' && method === 'POST') return logoutHandler(req)
 
 	// Authenticated routes
 	const authResult = await authMiddleware(req)
@@ -43,8 +43,7 @@ export async function router(req: Request): Promise<Response> {
 
 	// Services JSON API
 	if (pathname === '/services' && method === 'GET') return listHandler(ctx)
-	if (pathname === '/services' && method === 'POST') return registerHandler(ctx, req)
-	if (pathname === '/services/available' && method === 'GET') return availableHandler(ctx)
+	if (pathname === '/services' && method === 'POST') return installHandler(ctx, req)
 
 	const serviceMatch = pathname.match(/^\/services\/([^/]+)(\/.*)?$/)
 	if (serviceMatch) {
@@ -57,6 +56,7 @@ export async function router(req: Request): Promise<Response> {
 		if (sub === '/start' && method === 'POST') return startHandler(ctx, name)
 		if (sub === '/stop' && method === 'POST') return stopHandler(ctx, name)
 		if (sub === '/restart' && method === 'POST') return restartHandler(ctx, name)
+		if (sub === '/uninstall' && method === 'POST') return uninstallHandler(ctx, name)
 	}
 
 	return html404()

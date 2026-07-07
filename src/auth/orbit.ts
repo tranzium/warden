@@ -20,6 +20,7 @@ const ALL_PERMISSIONS = [
 	'services.stop',
 	'services.restart',
 	'services.register',
+	'services.install',
 ]
 
 export async function introspect(accessToken: string): Promise<IntrospectResult> {

@@ -19,11 +19,18 @@ if (isNaN(port) || port < 1 || port > 65535) {
 	process.exit(1)
 }
 
+const sessionTtlHours = parseInt(process.env.SESSION_TTL_HOURS ?? '168')
+if (isNaN(sessionTtlHours) || sessionTtlHours < 1) {
+	console.error('SESSION_TTL_HOURS must be a positive number of hours')
+	process.exit(1)
+}
+
 export const config = Object.freeze({
 	port,
 	host: process.env.HOST ?? '0.0.0.0',
 	cookieSecret,
 	dbPath: process.env.DB_PATH ?? './data/warden.db',
+	sessionTtlHours,
 
 	orbitIntrospectUrl: required('ORBIT_INTROSPECT_URL'),
 	orbitApiKey: required('ORBIT_API_KEY'),
@@ -49,5 +56,6 @@ export const config = Object.freeze({
 
 	nssmPath: process.env.NSSM_PATH ?? 'nssm',
 	wardenServiceName: process.env.WARDEN_SERVICE_NAME ?? 'warden',
+	logsDir: process.env.LOGS_DIR ?? 'D:\\logs',
 	secure: (process.env.OAUTH_REDIRECT_URI ?? '').startsWith('https://'),
 })
