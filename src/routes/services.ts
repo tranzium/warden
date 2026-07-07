@@ -1,5 +1,5 @@
 import { listServices, getService, registerService, unregisterService, updateService, type ServiceRow } from '../db/client'
-import { nssmStatus, nssmStart, nssmStop, nssmRestart, isSelf, selfRestart, type ServiceState } from '../nssm/client'
+import { nssmStatus, nssmStart, nssmStop, nssmRestart, isSelf, selfRestart, listWindowsServices, type ServiceState } from '../nssm/client'
 import { type AuthContext, hasPermission } from '../auth/middleware'
 import { ok, created, noContent, badRequest, forbidden, notFound, unprocessable } from '../shared/http'
 import { dashboardPage, type ServiceView } from '../views/dashboard'
@@ -135,6 +135,15 @@ export async function registerHandler(ctx: AuthContext, req: Request): Promise<R
 	})
 
 	return created(row)
+}
+
+export async function availableHandler(ctx: AuthContext): Promise<Response> {
+	if (!hasPermission(ctx, 'services.register')) return forbidden()
+
+	const registered = new Set(listServices().map(row => row.name))
+	const names = await listWindowsServices()
+
+	return ok({ services: names.filter(n => !registered.has(n)) })
 }
 
 export function unregisterHandler(ctx: AuthContext, name: string): Response {

@@ -15,6 +15,18 @@
 	opacity: 0.8;
 }
 
+.group-header::after {
+	content: '\25BE';
+	margin-left: auto;
+	font-size: 0.75em;
+	color: #6c757d;
+	transition: transform 0.15s ease;
+}
+
+.group-header.collapsed::after {
+	transform: rotate(-90deg);
+}
+
 #pulse-bar {
 	padding: 0.5rem 0;
 	border-bottom: 1px solid #dee2e6;

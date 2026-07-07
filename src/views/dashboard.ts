@@ -74,6 +74,7 @@ function renderManageMenu(svc: ServiceView, grants: Record<string, boolean>): st
 					data-managed="${svc.managed ? '1' : '0'}">Edit</a></li>
 				<li><a class="dropdown-item text-danger delete-btn" href="#"
 					data-service="${esc(svc.name)}"
+					data-display="${esc(svc.display ?? svc.name)}"
 					data-confirm="Unregister ${esc(svc.display ?? svc.name)}? This only removes it from Warden — the Windows service itself is untouched.">Delete</a></li>
 			</ul>
 		</div>`
@@ -138,18 +139,16 @@ function renderGroup(groupName: string, services: ServiceView[], grants: Record<
 	const allUp = running === total
 	const badgeClass = allUp ? 'bg-success' : 'bg-warning text-dark'
 
-	// Expand groups that have problems
-	const hasProblems = services.some(s => s.status !== 'Running')
 	const collapseId = `group-${groupName.replace(/\s+/g, '-').toLowerCase()}`
 
 	return `
-		<div class="service-group mb-4">
+		<div class="service-group mb-4" data-group-name="${esc(groupName)}">
 			<h5 class="d-flex align-items-center gap-2 mb-3 group-header" role="button"
-				data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="${hasProblems ? 'true' : 'false'}">
+				data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="true">
 				<span>${esc(groupName)}</span>
-				<span class="badge ${badgeClass}">${running}/${total}</span>
+				<span class="badge ${badgeClass} group-pulse">${running}/${total}</span>
 			</h5>
-			<div class="collapse${hasProblems ? ' show' : ''}" id="${collapseId}">
+			<div class="collapse show" id="${collapseId}">
 				<div class="row g-3">
 					${services.map(s => renderTile(s, grants)).join('')}
 				</div>
@@ -168,7 +167,7 @@ function renderPulseBar(pulse: PulseData, grants: Record<string, boolean>): stri
 		: ''
 
 	return `<div id="pulse-bar" class="d-flex justify-content-between align-items-center gap-2 mb-3">
-		<div class="d-flex gap-2">${parts.join('')}</div>
+		<div class="d-flex gap-2" id="pulse-badges">${parts.join('')}</div>
 		${registerButton}
 	</div>`
 }
@@ -190,7 +189,8 @@ function renderServiceModal(groups: string[]): string {
 						<input type="hidden" id="svc-original-name" value="">
 						<div class="mb-3">
 							<label for="svc-name" class="form-label">Service name</label>
-							<input type="text" class="form-control" id="svc-name" required>
+							<input type="text" class="form-control" id="svc-name" list="svc-available-list" autocomplete="off" required>
+							<datalist id="svc-available-list"></datalist>
 							<div class="form-text">Must exactly match the Windows/NSSM service name.</div>
 						</div>
 						<div class="mb-3">
@@ -269,6 +269,7 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 				<h4 class="text-light">Reconnecting to Warden...</h4>
 			</div>
 		</div>
+		<div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
 		${grants['services.register'] ? renderServiceModal(Array.from(new Set(services.map(s => s.group_name).filter((g): g is string => !!g)))) : ''}
 		<script>window.__WARDEN__ = ${wardenConfig};</script>`
 
