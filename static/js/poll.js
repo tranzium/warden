@@ -166,7 +166,7 @@
 	}
 
 	function tileHtml(svc) {
-		return '<div class="col-xl-3 col-lg-4 col-md-6' + (svc.hidden ? ' svc-hidden' : '') + '"' +
+		return '<div class="service-col col-xl-3 col-lg-4 col-md-6' + (svc.hidden ? ' svc-hidden' : '') + '"' +
 			' data-service="' + esc(svc.name) + '"' +
 			' data-hidden="' + (svc.hidden ? '1' : '0') + '"' +
 			' data-missing="' + (svc.missing ? '1' : '0') + '">' +
@@ -245,6 +245,8 @@
 			editBtn.dataset.group = svc.group_name || ''
 			editBtn.dataset.managed = svc.managed ? '1' : '0'
 		}
+		var uninstallBtn = el.querySelector('.uninstall-btn')
+		if (uninstallBtn) uninstallBtn.dataset.display = svc.display || svc.name
 	}
 
 	function patchGroup(groupEl, services) {
@@ -377,8 +379,10 @@
 
 		// Index existing tiles across the whole container, regardless of current group,
 		// so a service that moved groups (edited group_name) is moved rather than recreated.
+		// Only the .service-col wrapper counts — menu items and action buttons inside the
+		// tile carry data-service too, and matching them here duplicated tiles every poll.
 		var existingTiles = {}
-		container.querySelectorAll('[data-service]').forEach(function (el) {
+		container.querySelectorAll('.service-col').forEach(function (el) {
 			existingTiles[el.dataset.service] = el
 		})
 
