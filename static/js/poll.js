@@ -57,6 +57,23 @@
 		el.title = 'Warden uptime: ' + display + ' | v' + self.version
 	}
 
+	function buildManageMenu(svc) {
+		if (!grants['services.register']) return ''
+		return '<div class="dropdown">' +
+			'<button class="btn btn-sm btn-outline-secondary border-0 py-0 px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false">&#8942;</button>' +
+			'<ul class="dropdown-menu dropdown-menu-end">' +
+			'<li><a class="dropdown-item edit-btn" href="#"' +
+			' data-service="' + esc(svc.name) + '"' +
+			' data-display="' + esc(svc.display || '') + '"' +
+			' data-description="' + esc(svc.description || '') + '"' +
+			' data-group="' + esc(svc.group_name || '') + '"' +
+			' data-managed="' + (svc.managed ? '1' : '0') + '">Edit</a></li>' +
+			'<li><a class="dropdown-item text-danger delete-btn" href="#"' +
+			' data-service="' + esc(svc.name) + '"' +
+			' data-confirm="Unregister ' + esc(svc.display || svc.name) + '? This only removes it from Warden — the Windows service itself is untouched.">Delete</a></li>' +
+			'</ul></div>'
+	}
+
 	function buildActionButtons(svc) {
 		if (!svc.managed || isPending(svc.status)) return ''
 		var isSelf = svc.name === wardenServiceName
@@ -95,7 +112,10 @@
 			'<div class="card-body">' +
 			'<div class="d-flex justify-content-between align-items-start mb-1">' +
 			'<h6 class="card-title mb-0">' + esc(svc.display || svc.name) + '</h6>' +
+			'<div class="d-flex align-items-center gap-1">' +
 			'<span class="badge ' + badgeClass(svc.status) + ' status-badge">' + esc(svc.status) + '</span>' +
+			buildManageMenu(svc) +
+			'</div>' +
 			'</div>' +
 			(svc.description ? '<p class="card-text text-muted small mb-0">' + esc(svc.description) + '</p>' : '') +
 			buildActionButtons(svc) +
@@ -125,6 +145,21 @@
 		StartPending: 4, ContinuePending: 5, PausePending: 6, Running: 7,
 	}
 
+	function updateGroupsDatalist(services) {
+		var datalist = document.getElementById('svc-groups-list')
+		if (!datalist) return
+		var seen = {}
+		var groups = []
+		services.forEach(function (s) {
+			if (s.group_name && !seen[s.group_name]) {
+				seen[s.group_name] = true
+				groups.push(s.group_name)
+			}
+		})
+		groups.sort()
+		datalist.innerHTML = groups.map(function (g) { return '<option value="' + esc(g) + '">' }).join('')
+	}
+
 	function updateServices(data) {
 		updatePulseBar(data.pulse)
 		updateSelfStatus(data.self)
@@ -133,6 +168,8 @@
 		if (!container) return
 
 		var services = data.services || []
+		updateGroupsDatalist(services)
+
 		if (services.length === 0) {
 			container.innerHTML = '<div class="text-center text-muted mt-5"><h4>No services registered</h4><p>Register services to start managing them.</p></div>'
 			return
@@ -159,6 +196,7 @@
 
 		container.innerHTML = html
 		bindActionButtons()
+		bindManageMenu()
 	}
 
 	// --- Actions ---
@@ -205,6 +243,174 @@
 				if (confirmMsg && !confirm(confirmMsg)) return
 				performAction(service, action, isSelfRestart)
 			})
+		})
+	}
+
+	// --- Register / edit / delete ---
+
+	var serviceModalEl = document.getElementById('service-modal')
+	var serviceModal = null
+
+	function getServiceModal() {
+		if (!serviceModal && serviceModalEl && window.bootstrap) {
+			serviceModal = new bootstrap.Modal(serviceModalEl)
+		}
+		return serviceModal
+	}
+
+	function hideFormError() {
+		var err = document.getElementById('service-form-error')
+		if (err) {
+			err.classList.add('d-none')
+			err.textContent = ''
+		}
+	}
+
+	function showFormError(msg) {
+		var err = document.getElementById('service-form-error')
+		if (err) {
+			err.textContent = msg
+			err.classList.remove('d-none')
+		}
+	}
+
+	function resetServiceForm() {
+		document.getElementById('svc-mode').value = 'register'
+		document.getElementById('svc-original-name').value = ''
+		var nameInput = document.getElementById('svc-name')
+		nameInput.value = ''
+		nameInput.disabled = false
+		document.getElementById('svc-display').value = ''
+		document.getElementById('svc-description').value = ''
+		document.getElementById('svc-group').value = ''
+		document.getElementById('svc-managed').checked = true
+		document.getElementById('service-modal-title').textContent = 'Register service'
+		document.getElementById('service-form-submit').textContent = 'Register'
+		hideFormError()
+	}
+
+	function openRegisterModal() {
+		resetServiceForm()
+		var modal = getServiceModal()
+		if (modal) modal.show()
+	}
+
+	function openEditModal(el) {
+		resetServiceForm()
+		document.getElementById('svc-mode').value = 'edit'
+		document.getElementById('svc-original-name').value = el.dataset.service
+		var nameInput = document.getElementById('svc-name')
+		nameInput.value = el.dataset.service
+		nameInput.disabled = true
+		document.getElementById('svc-display').value = el.dataset.display || ''
+		document.getElementById('svc-description').value = el.dataset.description || ''
+		document.getElementById('svc-group').value = el.dataset.group || ''
+		document.getElementById('svc-managed').checked = el.dataset.managed === '1'
+		document.getElementById('service-modal-title').textContent = 'Edit service'
+		document.getElementById('service-form-submit').textContent = 'Save changes'
+		var modal = getServiceModal()
+		if (modal) modal.show()
+	}
+
+	function deleteService(name) {
+		fetch('/services/' + encodeURIComponent(name), {
+			method: 'DELETE',
+			headers: { Accept: 'application/json' },
+		})
+			.then(function (res) {
+				if (res.status === 401) {
+					window.location.href = '/login'
+					return
+				}
+				if (res.status === 403) {
+					alert('Permission denied')
+					return
+				}
+				poll()
+			})
+			.catch(function (err) {
+				console.error('Delete failed:', err)
+			})
+	}
+
+	function bindManageMenu() {
+		document.querySelectorAll('.edit-btn').forEach(function (el) {
+			el.addEventListener('click', function (e) {
+				e.preventDefault()
+				openEditModal(this)
+			})
+		})
+		document.querySelectorAll('.delete-btn').forEach(function (el) {
+			el.addEventListener('click', function (e) {
+				e.preventDefault()
+				var confirmMsg = this.dataset.confirm
+				if (confirmMsg && !confirm(confirmMsg)) return
+				deleteService(this.dataset.service)
+			})
+		})
+	}
+
+	function bindServiceForm() {
+		var registerBtn = document.getElementById('register-service-btn')
+		if (registerBtn) {
+			registerBtn.addEventListener('click', function () {
+				openRegisterModal()
+			})
+		}
+
+		var form = document.getElementById('service-form')
+		if (!form) return
+
+		form.addEventListener('submit', function (e) {
+			e.preventDefault()
+			hideFormError()
+
+			var mode = document.getElementById('svc-mode').value
+			var name = document.getElementById('svc-name').value.trim()
+			var payload = {
+				display: document.getElementById('svc-display').value.trim() || null,
+				description: document.getElementById('svc-description').value.trim() || null,
+				group_name: document.getElementById('svc-group').value.trim() || null,
+				managed: document.getElementById('svc-managed').checked,
+			}
+
+			var url, method
+			if (mode === 'edit') {
+				url = '/services/' + encodeURIComponent(document.getElementById('svc-original-name').value)
+				method = 'PATCH'
+			} else {
+				if (!name) {
+					showFormError('Service name is required')
+					return
+				}
+				payload.name = name
+				url = '/services'
+				method = 'POST'
+			}
+
+			fetch(url, {
+				method: method,
+				headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+				body: JSON.stringify(payload),
+			})
+				.then(function (res) {
+					if (res.status === 401) {
+						window.location.href = '/login'
+						return
+					}
+					if (res.ok) {
+						var modal = getServiceModal()
+						if (modal) modal.hide()
+						poll()
+						return
+					}
+					return res.json().then(function (data) {
+						showFormError((data && data.error) || 'Request failed')
+					})
+				})
+				.catch(function () {
+					showFormError('Network error — please try again')
+				})
 		})
 	}
 
@@ -269,5 +475,7 @@
 	// --- Init ---
 
 	bindActionButtons()
+	bindManageMenu()
+	bindServiceForm()
 	startPolling()
 })()

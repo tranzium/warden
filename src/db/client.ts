@@ -26,6 +26,9 @@ const insertStmt = db.prepare<void, [string, string, string | null, string | nul
 	'INSERT INTO services (id, name, display, description, group_name, managed) VALUES (?, ?, ?, ?, ?, ?)',
 )
 const deleteStmt = db.prepare<void, [string]>('DELETE FROM services WHERE name = ?')
+const updateStmt = db.prepare<void, [string | null, string | null, string | null, number, string]>(
+	'UPDATE services SET display = ?, description = ?, group_name = ?, managed = ? WHERE name = ?',
+)
 
 export function listServices(): ServiceRow[] {
 	return listStmt.all()
@@ -59,4 +62,25 @@ export function unregisterService(name: string): boolean {
 	if (!existing) return false
 	deleteStmt.run(name)
 	return true
+}
+
+export function updateService(
+	name: string,
+	data: {
+		display?: string | null
+		description?: string | null
+		group_name?: string | null
+		managed?: boolean
+	},
+): ServiceRow | null {
+	const existing = getStmt.get(name)
+	if (!existing) return null
+
+	const display = data.display !== undefined ? data.display : existing.display
+	const description = data.description !== undefined ? data.description : existing.description
+	const group_name = data.group_name !== undefined ? data.group_name : existing.group_name
+	const managed = data.managed !== undefined ? (data.managed ? 1 : 0) : existing.managed
+
+	updateStmt.run(display, description, group_name, managed, name)
+	return getStmt.get(name)!
 }
