@@ -31,7 +31,7 @@ export async function router(req: Request): Promise<Response> {
 	if ((pathname === '/login/consent' || pathname === '/login/consent/') && method === 'GET') return consentGetHandler(req)
 	if ((pathname === '/login/consent' || pathname === '/login/consent/') && method === 'POST') return consentPostHandler(req)
 	if (pathname === '/callback' && method === 'GET') return callbackHandler(req)
-	if (pathname === '/logout' && method === 'POST') return logoutHandler()
+	if (pathname === '/logout' && method === 'POST') return logoutHandler(req)
 
 	// Authenticated routes
 	const authResult = await authMiddleware(req)

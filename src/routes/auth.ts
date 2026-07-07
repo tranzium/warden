@@ -1,6 +1,7 @@
 import { parseCookies, verifySession, verifyPkce, signSession, signPkce, sessionCookie, clearSessionCookie, pkceCookie, clearPkceCookie } from '../auth/cookies'
-import { buildAuthorizeUrl, exchangeCode, generatePkce } from '../auth/orbit'
+import { buildAuthorizeUrl, exchangeCode, introspect, generatePkce } from '../auth/orbit'
 import { resolveChallenge, authenticateUser, signAndSubmitConsent } from '../auth/consent'
+import { createSession, getSession, deleteSession } from '../db/client'
 import { config } from '../shared/config'
 import { loginPage } from '../views/login'
 import { consentPage, consentErrorPage } from '../views/consent'
@@ -9,7 +10,8 @@ import { redirect } from '../shared/http'
 export function loginHandler(req: Request): Response {
 	// If already authenticated, redirect to dashboard
 	const cookies = parseCookies(req)
-	if (cookies.warden_session && verifySession(cookies.warden_session)) {
+	const sid = cookies.warden_session ? verifySession(cookies.warden_session) : null
+	if (sid && getSession(sid)) {
 		return new Response(null, { status: 302, headers: { Location: '/' } })
 	}
 	return loginPage()
@@ -50,17 +52,30 @@ export async function callbackHandler(req: Request): Promise<Response> {
 		return new Response('Invalid state — please try signing in again', { status: 400 })
 	}
 
-	// Exchange code for token
+	// Exchange code for token, then introspect once to seed the warden session
 	const token = await exchangeCode(code, pkce.verifier)
+	const result = await introspect(token.access_token)
+	if (!result.authenticated || !result.user) {
+		return new Response('Authentication failed: token was not accepted', { status: 400 })
+	}
+
+	const sid = createSession({
+		accessToken: token.access_token,
+		user: result.user,
+		grants: result.grants ?? {},
+	})
 
 	// Set session cookie, clear PKCE cookie, redirect to dashboard
 	const headers = new Headers({ Location: '/' })
-	headers.append('Set-Cookie', sessionCookie(signSession(token.access_token)))
+	headers.append('Set-Cookie', sessionCookie(signSession(sid)))
 	headers.append('Set-Cookie', clearPkceCookie())
 	return new Response(null, { status: 302, headers })
 }
 
-export function logoutHandler(): Response {
+export function logoutHandler(req: Request): Response {
+	const cookies = parseCookies(req)
+	const sid = cookies.warden_session ? verifySession(cookies.warden_session) : null
+	if (sid) deleteSession(sid)
 	return redirect('/', clearSessionCookie())
 }
 
