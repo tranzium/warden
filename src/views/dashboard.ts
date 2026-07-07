@@ -8,6 +8,8 @@ export interface ServiceView {
 	description: string | null
 	group_name: string | null
 	managed: boolean
+	hidden: boolean
+	missing: boolean
 	status: ServiceState
 }
 
@@ -30,8 +32,13 @@ const STATE_PRIORITY: Record<string, number> = {
 	Running: 7,
 }
 
-function statusBadgeClass(status: ServiceState): string {
-	switch (status) {
+function statusLabel(svc: ServiceView): string {
+	return svc.missing ? 'Missing' : svc.status
+}
+
+function statusBadgeClass(svc: ServiceView): string {
+	if (svc.missing) return 'bg-secondary'
+	switch (svc.status) {
 		case 'Running':
 			return 'bg-success'
 		case 'Stopped':
@@ -44,8 +51,9 @@ function statusBadgeClass(status: ServiceState): string {
 	}
 }
 
-function tileClass(status: ServiceState): string {
-	switch (status) {
+function tileClass(svc: ServiceView): string {
+	if (svc.missing) return 'border-secondary'
+	switch (svc.status) {
 		case 'Stopped':
 		case 'Unknown':
 			return 'border-danger'
@@ -61,27 +69,43 @@ function isPending(status: ServiceState): boolean {
 }
 
 function renderManageMenu(svc: ServiceView, grants: Record<string, boolean>): string {
-	if (!grants['services.register']) return ''
+	const items: string[] = []
+
+	if (grants['services.register']) {
+		items.push(`<li><a class="dropdown-item edit-btn" href="#"
+			data-service="${esc(svc.name)}"
+			data-display="${esc(svc.display ?? '')}"
+			data-description="${esc(svc.description ?? '')}"
+			data-group="${esc(svc.group_name ?? '')}"
+			data-managed="${svc.managed ? '1' : '0'}">Edit</a></li>`)
+		items.push(`<li><a class="dropdown-item toggle-hidden-btn" href="#"
+			data-service="${esc(svc.name)}"
+			data-hidden="${svc.hidden ? '1' : '0'}">${svc.hidden ? 'Show' : 'Hide'}</a></li>`)
+		if (svc.missing) {
+			items.push(`<li><a class="dropdown-item text-danger delete-btn" href="#"
+				data-service="${esc(svc.name)}"
+				data-display="${esc(svc.display ?? svc.name)}"
+				data-confirm="Remove the entry for ${esc(svc.display ?? svc.name)}? Its saved group and settings will be forgotten.">Remove entry</a></li>`)
+		}
+	}
+
+	if (grants['services.install'] && !svc.missing && svc.name !== config.wardenServiceName) {
+		if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
+		items.push(`<li><a class="dropdown-item text-danger uninstall-btn" href="#"
+			data-service="${esc(svc.name)}"
+			data-display="${esc(svc.display ?? svc.name)}">Uninstall&hellip;</a></li>`)
+	}
+
+	if (items.length === 0) return ''
 	return `
 		<div class="dropdown">
 			<button class="btn btn-sm btn-outline-secondary border-0 py-0 px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false">&#8942;</button>
-			<ul class="dropdown-menu dropdown-menu-end">
-				<li><a class="dropdown-item edit-btn" href="#"
-					data-service="${esc(svc.name)}"
-					data-display="${esc(svc.display ?? '')}"
-					data-description="${esc(svc.description ?? '')}"
-					data-group="${esc(svc.group_name ?? '')}"
-					data-managed="${svc.managed ? '1' : '0'}">Edit</a></li>
-				<li><a class="dropdown-item text-danger delete-btn" href="#"
-					data-service="${esc(svc.name)}"
-					data-display="${esc(svc.display ?? svc.name)}"
-					data-confirm="Unregister ${esc(svc.display ?? svc.name)}? This only removes it from Warden — the Windows service itself is untouched.">Delete</a></li>
-			</ul>
+			<ul class="dropdown-menu dropdown-menu-end">${items.join('')}</ul>
 		</div>`
 }
 
 function renderActionButtons(svc: ServiceView, grants: Record<string, boolean>): string {
-	if (!svc.managed || isPending(svc.status)) return ''
+	if (svc.missing || !svc.managed || isPending(svc.status)) return ''
 
 	const isSelf = svc.name === config.wardenServiceName
 	const buttons: string[] = []
@@ -116,13 +140,13 @@ function renderActionButtons(svc: ServiceView, grants: Record<string, boolean>):
 
 function renderTile(svc: ServiceView, grants: Record<string, boolean>): string {
 	return `
-		<div class="col-xl-3 col-lg-4 col-md-6" data-service="${esc(svc.name)}">
-			<div class="card service-tile ${tileClass(svc.status)}">
+		<div class="col-xl-3 col-lg-4 col-md-6${svc.hidden ? ' svc-hidden' : ''}" data-service="${esc(svc.name)}" data-hidden="${svc.hidden ? '1' : '0'}" data-missing="${svc.missing ? '1' : '0'}">
+			<div class="card service-tile ${tileClass(svc)}">
 				<div class="card-body">
 					<div class="d-flex justify-content-between align-items-start mb-1">
 						<h6 class="card-title mb-0">${esc(svc.display ?? svc.name)}</h6>
 						<div class="d-flex align-items-center gap-1">
-							<span class="badge ${statusBadgeClass(svc.status)} status-badge">${esc(svc.status)}</span>
+							<span class="badge ${statusBadgeClass(svc)} status-badge">${esc(statusLabel(svc))}</span>
 							${renderManageMenu(svc, grants)}
 						</div>
 					</div>
@@ -138,11 +162,12 @@ function renderGroup(groupName: string, services: ServiceView[], grants: Record<
 	const total = services.length
 	const allUp = running === total
 	const badgeClass = allUp ? 'bg-success' : 'bg-warning text-dark'
+	const allHidden = services.every(s => s.hidden)
 
 	const collapseId = `group-${groupName.replace(/\s+/g, '-').toLowerCase()}`
 
 	return `
-		<div class="service-group mb-4" data-group-name="${esc(groupName)}">
+		<div class="service-group mb-4${allHidden ? ' svc-hidden' : ''}" data-group-name="${esc(groupName)}">
 			<h5 class="d-flex align-items-center gap-2 mb-3 group-header" role="button"
 				data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="true">
 				<span>${esc(groupName)}</span>
@@ -156,19 +181,31 @@ function renderGroup(groupName: string, services: ServiceView[], grants: Record<
 		</div>`
 }
 
-function renderPulseBar(pulse: PulseData, grants: Record<string, boolean>): string {
+function renderToolbar(pulse: PulseData, groupNames: string[], grants: Record<string, boolean>): string {
 	const parts: string[] = []
 	if (pulse.running > 0) parts.push(`<span class="badge bg-success">${pulse.running} running</span>`)
 	if (pulse.stopped > 0) parts.push(`<span class="badge bg-danger">${pulse.stopped} stopped</span>`)
 	if (pulse.other > 0) parts.push(`<span class="badge bg-secondary">${pulse.other} other</span>`)
 
-	const registerButton = grants['services.register']
-		? `<button type="button" class="btn btn-primary btn-sm" id="register-service-btn">+ Register service</button>`
+	const groupOptions = groupNames.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('')
+
+	const installButton = grants['services.install']
+		? `<button type="button" class="btn btn-primary btn-sm" id="install-service-btn">+ Install service</button>`
 		: ''
 
-	return `<div id="pulse-bar" class="d-flex justify-content-between align-items-center gap-2 mb-3">
+	return `<div id="pulse-bar" class="d-flex justify-content-between align-items-center gap-2 mb-3 flex-wrap">
 		<div class="d-flex gap-2" id="pulse-badges">${parts.join('')}</div>
-		${registerButton}
+		<div class="d-flex align-items-center gap-3">
+			<select class="form-select form-select-sm w-auto" id="group-filter" aria-label="Filter by group">
+				<option value="">All groups</option>
+				${groupOptions}
+			</select>
+			<div class="form-check form-switch mb-0">
+				<input class="form-check-input" type="checkbox" id="show-hidden-toggle">
+				<label class="form-check-label small" for="show-hidden-toggle">Show hidden</label>
+			</div>
+			${installButton}
+		</div>
 	</div>`
 }
 
@@ -180,18 +217,46 @@ function renderServiceModal(groups: string[]): string {
 			<div class="modal-content">
 				<form id="service-form">
 					<div class="modal-header">
-						<h5 class="modal-title" id="service-modal-title">Register service</h5>
+						<h5 class="modal-title" id="service-modal-title">Install service</h5>
 						<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
 					</div>
 					<div class="modal-body">
 						<div class="alert alert-danger d-none" id="service-form-error"></div>
-						<input type="hidden" id="svc-mode" value="register">
+						<input type="hidden" id="svc-mode" value="install">
 						<input type="hidden" id="svc-original-name" value="">
 						<div class="mb-3">
 							<label for="svc-name" class="form-label">Service name</label>
-							<input type="text" class="form-control" id="svc-name" list="svc-available-list" autocomplete="off" required>
-							<datalist id="svc-available-list"></datalist>
-							<div class="form-text">Must exactly match the Windows/NSSM service name.</div>
+							<input type="text" class="form-control" id="svc-name" autocomplete="off" required>
+							<div class="form-text">Letters, digits, dot, underscore and hyphen only.</div>
+						</div>
+						<div class="mb-3 install-only">
+							<label for="svc-program" class="form-label">Program</label>
+							<input type="text" class="form-control" id="svc-program" placeholder="D:\\apps\\myservice\\myservice.exe">
+						</div>
+						<div class="mb-3 install-only">
+							<label for="svc-args" class="form-label">Arguments</label>
+							<input type="text" class="form-control" id="svc-args">
+						</div>
+						<div class="mb-3 install-only">
+							<label for="svc-directory" class="form-label">Working directory</label>
+							<input type="text" class="form-control" id="svc-directory" placeholder="Defaults to the program's directory">
+						</div>
+						<div class="mb-3 install-only">
+							<label for="svc-start" class="form-label">Startup type</label>
+							<select class="form-select" id="svc-start">
+								<option value="auto" selected>Automatic</option>
+								<option value="delayed">Automatic (delayed)</option>
+								<option value="manual">Manual</option>
+								<option value="disabled">Disabled</option>
+							</select>
+						</div>
+						<div class="mb-3 install-only">
+							<label for="svc-stdout" class="form-label">Stdout log</label>
+							<input type="text" class="form-control" id="svc-stdout">
+						</div>
+						<div class="mb-3 install-only">
+							<label for="svc-stderr" class="form-label">Stderr log</label>
+							<input type="text" class="form-control" id="svc-stderr">
 						</div>
 						<div class="mb-3">
 							<label for="svc-display" class="form-label">Display name</label>
@@ -206,14 +271,14 @@ function renderServiceModal(groups: string[]): string {
 							<input type="text" class="form-control" id="svc-group" list="svc-groups-list">
 							<datalist id="svc-groups-list">${groupOptions}</datalist>
 						</div>
-						<div class="form-check">
+						<div class="form-check edit-only">
 							<input type="checkbox" class="form-check-input" id="svc-managed" checked>
-							<label class="form-check-label" for="svc-managed">Managed (show live status and controls)</label>
+							<label class="form-check-label" for="svc-managed">Managed (show start/stop controls)</label>
 						</div>
 					</div>
 					<div class="modal-footer">
 						<button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-						<button type="submit" class="btn btn-primary" id="service-form-submit">Register</button>
+						<button type="submit" class="btn btn-primary" id="service-form-submit">Install</button>
 					</div>
 				</form>
 			</div>
@@ -222,11 +287,12 @@ function renderServiceModal(groups: string[]): string {
 }
 
 export function dashboardPage(services: ServiceView[], grants: Record<string, boolean>, opts: PageOpts): Response {
-	// Build pulse data
+	// Pulse counts cover visible services only — hidden ones are deliberately out of sight
+	const visible = services.filter(s => !s.hidden)
 	const pulse: PulseData = {
-		total: services.length,
-		running: services.filter(s => s.status === 'Running').length,
-		stopped: services.filter(s => s.status === 'Stopped' || s.status === 'Unknown').length,
+		total: visible.length,
+		running: visible.filter(s => s.status === 'Running').length,
+		stopped: visible.filter(s => s.status === 'Stopped' || s.status === 'Unknown').length,
 		other: 0,
 	}
 	pulse.other = pulse.total - pulse.running - pulse.stopped
@@ -246,8 +312,8 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 
 	const groupHtml = services.length === 0
 		? `<div class="text-center text-muted mt-5">
-			<h4>No services registered</h4>
-			<p>Register services to start managing them.</p>
+			<h4>No services found</h4>
+			<p>NSSM-managed services appear here automatically.</p>
 		</div>`
 		: Array.from(groups.entries())
 				.map(([name, svcs]) => renderGroup(name, svcs, grants))
@@ -256,10 +322,15 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 	const wardenConfig = JSON.stringify({
 		grants,
 		wardenServiceName: config.wardenServiceName,
+		logsDir: config.logsDir,
 	})
 
+	const canManage = grants['services.register'] || grants['services.install']
+	const groupNames = Array.from(groups.keys()).sort()
+	const editableGroups = Array.from(new Set(services.map(s => s.group_name).filter((g): g is string => !!g))).sort()
+
 	const body = `
-		${renderPulseBar(pulse, grants)}
+		${renderToolbar(pulse, groupNames, grants)}
 		<div id="services-container">
 			${groupHtml}
 		</div>
@@ -270,7 +341,7 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 			</div>
 		</div>
 		<div id="toast-container" class="toast-container position-fixed bottom-0 end-0 p-3"></div>
-		${grants['services.register'] ? renderServiceModal(Array.from(new Set(services.map(s => s.group_name).filter((g): g is string => !!g)))) : ''}
+		${canManage ? renderServiceModal(editableGroups) : ''}
 		<script>window.__WARDEN__ = ${wardenConfig};</script>`
 
 	return page('Dashboard', body, { ...opts, scripts: true })
