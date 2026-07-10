@@ -100,6 +100,12 @@ export async function nssmSet(name: string, parameter: string, ...values: string
 	return { ok: exitCode === 0, output: stdout || stderr }
 }
 
+// Returns null if the parameter is unset or the service doesn't exist
+export async function nssmGet(name: string, parameter: string): Promise<string | null> {
+	const { exitCode, stdout } = await nssm(['get', name, parameter])
+	return exitCode === 0 && stdout ? stdout : null
+}
+
 export async function nssmRemove(name: string): Promise<{ ok: boolean; output: string }> {
 	const { exitCode, stdout, stderr } = await nssm(['remove', name, 'confirm'])
 	return { ok: exitCode === 0, output: stdout || stderr }

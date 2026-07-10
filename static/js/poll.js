@@ -118,7 +118,12 @@
 	function manageMenuHtml(svc) {
 		var items = []
 
+		if (grants['services.logs'] && !svc.missing) {
+			items.push('<li><a class="dropdown-item" href="/services/' + encodeURIComponent(svc.name) + '/logs">Logs</a></li>')
+		}
+
 		if (grants['services.register']) {
+			if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
 			items.push('<li><a class="dropdown-item edit-btn" href="#"' +
 				' data-service="' + esc(svc.name) + '"' +
 				' data-display="' + esc(svc.display || '') + '"' +
