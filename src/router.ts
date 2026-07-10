@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { authMiddleware } from './auth/middleware'
 import { loginHandler, loginStartHandler, callbackHandler, logoutHandler, consentGetHandler, consentPostHandler } from './routes/auth'
 import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, restartHandler, installHandler, uninstallHandler, unregisterHandler, updateHandler } from './routes/services'
+import { logsPageHandler, logsDataHandler } from './routes/logs'
 import { html404 } from './views/html'
 
 const staticDir = resolve(import.meta.dir, '..', 'static')
@@ -57,6 +58,8 @@ export async function router(req: Request): Promise<Response> {
 		if (sub === '/stop' && method === 'POST') return stopHandler(ctx, name)
 		if (sub === '/restart' && method === 'POST') return restartHandler(ctx, name)
 		if (sub === '/uninstall' && method === 'POST') return uninstallHandler(ctx, name)
+		if (sub === '/logs' && method === 'GET') return logsPageHandler(ctx, name)
+		if (sub === '/logs/data' && method === 'GET') return logsDataHandler(ctx, name, req)
 	}
 
 	return html404()

@@ -21,6 +21,7 @@ const ALL_PERMISSIONS = [
 	'services.restart',
 	'services.register',
 	'services.install',
+	'services.logs',
 ]
 
 export async function introspect(accessToken: string): Promise<IntrospectResult> {

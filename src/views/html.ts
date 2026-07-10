@@ -6,6 +6,7 @@ export type PageOpts = {
 	userName?: string
 	grants?: Record<string, boolean>
 	scripts?: boolean
+	script?: string
 }
 
 const BOOTSTRAP_CSS = 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css'
@@ -30,7 +31,7 @@ function renderNav(opts: PageOpts): string {
 function pageHtml(status: number, title: string, body: string, opts?: PageOpts): Response {
 	const nav = opts?.userName ? renderNav(opts) : ''
 	const scriptTag = opts?.scripts
-		? `<script src="/static/js/poll.js"></script>`
+		? `<script src="${opts.script ?? '/static/js/poll.js'}"></script>`
 		: ''
 	const html = `<!DOCTYPE html>
 <html lang="en">
