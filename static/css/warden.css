@@ -62,6 +62,12 @@ body.show-hidden .svc-hidden .service-tile {
 	opacity: 0.6;
 }
 
+/* Compact per-tile Logs link so it sits neatly beside the status badge */
+.logs-link {
+	font-size: 0.7rem;
+	line-height: 1.2;
+}
+
 .logs-pane {
 	background: #1e1e1e;
 	color: #d4d4d4;
