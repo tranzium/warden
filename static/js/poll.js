@@ -43,6 +43,16 @@
 		return status.endsWith('Pending')
 	}
 
+	function pendingLabel(status) {
+		switch (status) {
+			case 'StartPending': return 'Starting…'
+			case 'StopPending': return 'Stopping…'
+			case 'ContinuePending': return 'Resuming…'
+			case 'PausePending': return 'Pausing…'
+			default: return 'Working…'
+		}
+	}
+
 	function esc(s) {
 		var d = document.createElement('div')
 		d.textContent = s
@@ -140,7 +150,10 @@
 	}
 
 	function actionButtonsHtml(svc) {
-		if (svc.missing || !svc.managed || isPending(svc.status)) return ''
+		if (svc.missing || !svc.managed) return ''
+		if (isPending(svc.status)) {
+			return '<div class="btn-group mt-2"><button class="btn btn-outline-secondary btn-sm" type="button" disabled>' + esc(pendingLabel(svc.status)) + '</button></div>'
+		}
 		var isSelf = svc.name === wardenServiceName
 		var btns = []
 
@@ -184,6 +197,50 @@
 			'</div></div></div>'
 	}
 
+	// --- Group collapse persistence ---
+
+	function getCollapsedGroups() {
+		try {
+			return JSON.parse(localStorage.getItem('warden.collapsedGroups') || '[]')
+		} catch (e) {
+			return []
+		}
+	}
+
+	function isGroupCollapsed(name) {
+		return getCollapsedGroups().indexOf(name) !== -1
+	}
+
+	function setGroupCollapsed(name, collapsed) {
+		var list = getCollapsedGroups()
+		var idx = list.indexOf(name)
+		if (collapsed && idx === -1) list.push(name)
+		if (!collapsed && idx !== -1) list.splice(idx, 1)
+		localStorage.setItem('warden.collapsedGroups', JSON.stringify(list))
+	}
+
+	function bindCollapsePersistence() {
+		document.addEventListener('show.bs.collapse', function (e) {
+			var group = e.target.closest('.service-group')
+			if (group) setGroupCollapsed(group.dataset.groupName, false)
+		})
+		document.addEventListener('hide.bs.collapse', function (e) {
+			var group = e.target.closest('.service-group')
+			if (group) setGroupCollapsed(group.dataset.groupName, true)
+		})
+	}
+
+	function applyCollapsedState() {
+		document.querySelectorAll('.service-group').forEach(function (groupEl) {
+			var collapsed = isGroupCollapsed(groupEl.dataset.groupName)
+			var collapseEl = groupEl.querySelector('.collapse')
+			var header = groupEl.querySelector('.group-header')
+			if (!collapseEl) return
+			collapseEl.classList.toggle('show', !collapsed)
+			if (header) header.setAttribute('aria-expanded', String(!collapsed))
+		})
+	}
+
 	function groupHtml(name, services) {
 		var running = services.filter(function (s) { return s.status === 'Running' }).length
 		var total = services.length
@@ -191,13 +248,14 @@
 		var allHidden = services.every(function (s) { return s.hidden })
 		var bc = allUp ? 'bg-success' : 'bg-warning text-dark'
 		var cid = 'group-' + name.replace(/\s+/g, '-').toLowerCase()
+		var collapsed = isGroupCollapsed(name)
 
 		return '<div class="service-group mb-4' + (allHidden ? ' svc-hidden' : '') + '" data-group-name="' + esc(name) + '">' +
-			'<h5 class="d-flex align-items-center gap-2 mb-3 group-header" role="button" data-bs-toggle="collapse" data-bs-target="#' + cid + '" aria-expanded="true">' +
+			'<h5 class="d-flex align-items-center gap-2 mb-3 group-header" role="button" data-bs-toggle="collapse" data-bs-target="#' + cid + '" aria-expanded="' + (!collapsed) + '">' +
 			'<span>' + esc(name) + '</span>' +
 			'<span class="badge ' + bc + ' group-pulse">' + running + '/' + total + '</span>' +
 			'</h5>' +
-			'<div class="collapse show" id="' + cid + '">' +
+			'<div class="collapse' + (collapsed ? '' : ' show') + '" id="' + cid + '">' +
 			'<div class="row g-3"></div></div></div>'
 	}
 
@@ -205,6 +263,21 @@
 		var wrapper = document.createElement('div')
 		wrapper.innerHTML = html
 		return wrapper.firstElementChild
+	}
+
+	// Insert `els` into `parent` in order, without moving nodes that are already
+	// in their correct slot. A blind appendChild on every poll detaches and
+	// re-inserts every node even when nothing changed, which defeats scroll
+	// anchoring and can interrupt open dropdowns/collapses.
+	function reorderChildren(parent, els) {
+		var prev = null
+		els.forEach(function (el) {
+			var expectedNext = prev ? prev.nextElementSibling : parent.firstElementChild
+			if (expectedNext !== el) {
+				parent.insertBefore(el, expectedNext)
+			}
+			prev = el
+		})
 	}
 
 	// --- Tile / group patching ---
@@ -259,11 +332,6 @@
 		if (!badge) return
 		badge.className = 'badge ' + (allUp ? 'bg-success' : 'bg-warning text-dark') + ' group-pulse'
 		badge.textContent = running + '/' + total
-	}
-
-	var STATE_PRIORITY = {
-		Unknown: 0, Stopped: 1, Paused: 2, StopPending: 3,
-		StartPending: 4, ContinuePending: 5, PausePending: 6, Running: 7,
 	}
 
 	function updateGroupsDatalist(services) {
@@ -370,10 +438,13 @@
 			groups[g].push(s)
 		})
 
-		// Sort within group
+		// Sort within group alphabetically by display name — stable across status changes,
+		// so a tile doesn't jump position mid-action (matches the server-rendered order).
 		Object.keys(groups).forEach(function (g) {
 			groups[g].sort(function (a, b) {
-				return (STATE_PRIORITY[a.status] || 99) - (STATE_PRIORITY[b.status] || 99)
+				var an = (a.display || a.name).toLowerCase()
+				var bn = (b.display || b.name).toLowerCase()
+				return an < bn ? -1 : an > bn ? 1 : 0
 			})
 		})
 
@@ -393,7 +464,7 @@
 
 		var groupNames = Object.keys(groups).sort()
 
-		groupNames.forEach(function (name) {
+		var orderedGroupEls = groupNames.map(function (name) {
 			var groupEl = existingGroups[name]
 			if (!groupEl) {
 				groupEl = createElementFromHtml(groupHtml(name, groups[name]))
@@ -401,10 +472,9 @@
 				patchGroup(groupEl, groups[name])
 				delete existingGroups[name]
 			}
-			container.appendChild(groupEl)
 
 			var row = groupEl.querySelector('.row')
-			groups[name].forEach(function (svc) {
+			var orderedTiles = groups[name].map(function (svc) {
 				var tile = existingTiles[svc.name]
 				if (tile) {
 					delete existingTiles[svc.name]
@@ -419,9 +489,13 @@
 				} else {
 					tile = createElementFromHtml(tileHtml(svc))
 				}
-				row.appendChild(tile)
+				return tile
 			})
+			reorderChildren(row, orderedTiles)
+
+			return groupEl
 		})
+		reorderChildren(container, orderedGroupEls)
 
 		// Remove groups no longer present
 		Object.keys(existingGroups).forEach(function (name) {
@@ -850,5 +924,7 @@
 	bindDelegatedEvents()
 	bindServiceForm()
 	bindFilterControls()
+	bindCollapsePersistence()
+	applyCollapsedState()
 	startPolling()
 })()
