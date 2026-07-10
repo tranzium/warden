@@ -115,12 +115,13 @@
 
 	// --- Rendering (HTML string builders, used both for fresh nodes and initial page) ---
 
+	function logsLinkHtml(svc) {
+		if (!grants['services.logs'] || svc.missing) return ''
+		return '<a class="btn btn-sm btn-outline-secondary logs-link py-0 px-1" href="/services/' + encodeURIComponent(svc.name) + '/logs" title="View logs for ' + esc(svc.display || svc.name) + '">Logs</a>'
+	}
+
 	function manageMenuHtml(svc) {
 		var items = []
-
-		if (grants['services.logs'] && !svc.missing) {
-			items.push('<li><a class="dropdown-item" href="/services/' + encodeURIComponent(svc.name) + '/logs">Logs</a></li>')
-		}
 
 		if (grants['services.register']) {
 			if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
@@ -193,6 +194,7 @@
 			'<div class="d-flex justify-content-between align-items-start mb-1">' +
 			'<h6 class="card-title mb-0">' + esc(svc.display || svc.name) + '</h6>' +
 			'<div class="d-flex align-items-center gap-1">' +
+			logsLinkHtml(svc) +
 			'<span class="badge ' + badgeClass(svc) + ' status-badge">' + esc(statusLabel(svc)) + '</span>' +
 			manageMenuHtml(svc) +
 			'</div>' +
