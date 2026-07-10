@@ -20,18 +20,6 @@ export interface PulseData {
 	other: number
 }
 
-// Sort priority: failed/stopped float to top, running sinks
-const STATE_PRIORITY: Record<string, number> = {
-	Unknown: 0,
-	Stopped: 1,
-	Paused: 2,
-	StopPending: 3,
-	StartPending: 4,
-	ContinuePending: 5,
-	PausePending: 6,
-	Running: 7,
-}
-
 function statusLabel(svc: ServiceView): string {
 	return svc.missing ? 'Missing' : svc.status
 }
@@ -66,6 +54,21 @@ function tileClass(svc: ServiceView): string {
 
 function isPending(status: ServiceState): boolean {
 	return status.endsWith('Pending')
+}
+
+function pendingLabel(status: ServiceState): string {
+	switch (status) {
+		case 'StartPending':
+			return 'Starting…'
+		case 'StopPending':
+			return 'Stopping…'
+		case 'ContinuePending':
+			return 'Resuming…'
+		case 'PausePending':
+			return 'Pausing…'
+		default:
+			return 'Working…'
+	}
 }
 
 function renderManageMenu(svc: ServiceView, grants: Record<string, boolean>): string {
@@ -105,7 +108,11 @@ function renderManageMenu(svc: ServiceView, grants: Record<string, boolean>): st
 }
 
 function renderActionButtons(svc: ServiceView, grants: Record<string, boolean>): string {
-	if (svc.missing || !svc.managed || isPending(svc.status)) return ''
+	if (svc.missing || !svc.managed) return ''
+
+	if (isPending(svc.status)) {
+		return `<div class="btn-group mt-2"><button class="btn btn-outline-secondary btn-sm" type="button" disabled>${esc(pendingLabel(svc.status))}</button></div>`
+	}
 
 	const isSelf = svc.name === config.wardenServiceName
 	const buttons: string[] = []
@@ -305,9 +312,10 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 		groups.get(group)!.push(svc)
 	}
 
-	// Sort within each group: problems first
+	// Sort within each group alphabetically by display name — stable across status changes,
+	// so a tile doesn't jump position mid-action. Problems are still surfaced via border/badge/pulse.
 	for (const [, list] of groups) {
-		list.sort((a, b) => (STATE_PRIORITY[a.status] ?? 99) - (STATE_PRIORITY[b.status] ?? 99))
+		list.sort((a, b) => (a.display ?? a.name).toLowerCase().localeCompare((b.display ?? b.name).toLowerCase()))
 	}
 
 	const groupHtml = services.length === 0
