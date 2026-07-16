@@ -1,20 +1,16 @@
-.service-tile {
-	transition: border-color 0.2s;
+/* Warden keeps almost no CSS of its own — Bootstrap 5.3 utility classes cover the
+   dashboard. Only the few rules Bootstrap cannot express as utilities live here. */
+
+/* Log pane: Bootstrap has no max-viewport-height utility, and a <pre> needs
+   pre-wrap to wrap long lines. Colours/spacing come from utilities in the view. */
+.logs-pane {
+	max-height: 75vh;
+	min-height: 200px;
+	white-space: pre-wrap;
 }
 
-.service-tile:hover {
-	box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.1);
-}
-
-.group-header {
-	cursor: pointer;
-	user-select: none;
-}
-
-.group-header:hover {
-	opacity: 0.8;
-}
-
+/* Animated collapse caret for group headers. Bootstrap ships this only as part of
+   the accordion component; the dashboard uses plain collapse, so it lives here. */
 .group-header::after {
 	content: '\25BE';
 	margin-left: auto;
@@ -25,61 +21,4 @@
 
 .group-header.collapsed::after {
 	transform: rotate(-90deg);
-}
-
-#pulse-bar {
-	padding: 0.5rem 0;
-	border-bottom: 1px solid #dee2e6;
-}
-
-#reconnect-overlay {
-	position: fixed;
-	inset: 0;
-	background: rgba(0, 0, 0, 0.8);
-	z-index: 9999;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.reconnect-content {
-	text-align: center;
-}
-
-.status-badge {
-	font-size: 0.7rem;
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
-}
-
-/* Hidden services (and groups where every service is hidden) only render
-   when the "Show hidden" toggle sets body.show-hidden */
-body:not(.show-hidden) .svc-hidden {
-	display: none !important;
-}
-
-body.show-hidden .svc-hidden .service-tile {
-	opacity: 0.6;
-}
-
-/* Compact per-tile Logs link so it sits neatly beside the status badge */
-.logs-link {
-	font-size: 0.7rem;
-	line-height: 1.2;
-}
-
-.logs-pane {
-	background: #1e1e1e;
-	color: #d4d4d4;
-	font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
-	font-size: 0.85rem;
-	line-height: 1.4;
-	padding: 1rem;
-	border-radius: 0.375rem;
-	white-space: pre-wrap;
-	word-break: break-word;
-	max-height: 75vh;
-	min-height: 200px;
-	overflow-y: auto;
-	margin: 0;
 }

@@ -117,7 +117,7 @@
 
 	function logsLinkHtml(svc) {
 		if (!grants['services.logs'] || svc.missing) return ''
-		return '<a class="btn btn-sm btn-outline-secondary logs-link py-0 px-1" href="/services/' + encodeURIComponent(svc.name) + '/logs" title="View logs for ' + esc(svc.display || svc.name) + '">Logs</a>'
+		return '<a class="btn btn-sm btn-outline-secondary" href="/services/' + encodeURIComponent(svc.name) + '/logs" title="View logs for ' + esc(svc.display || svc.name) + '">Logs</a>'
 	}
 
 	function manageMenuHtml(svc) {
@@ -142,6 +142,11 @@
 			}
 		}
 
+		if (grants['services.install'] && !svc.missing) {
+			if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
+			items.push('<li><a class="dropdown-item" href="/services/' + encodeURIComponent(svc.name) + '/settings">Settings&hellip;</a></li>')
+		}
+
 		if (grants['services.install'] && !svc.missing && svc.name !== wardenServiceName) {
 			if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
 			items.push('<li><a class="dropdown-item text-danger uninstall-btn" href="#"' +
@@ -158,7 +163,7 @@
 	function actionButtonsHtml(svc) {
 		if (svc.missing || !svc.managed) return ''
 		if (isPending(svc.status)) {
-			return '<div class="btn-group mt-2"><button class="btn btn-outline-secondary btn-sm" type="button" disabled>' + esc(pendingLabel(svc.status)) + '</button></div>'
+			return '<div class="btn-group"><button class="btn btn-outline-secondary btn-sm" type="button" disabled>' + esc(pendingLabel(svc.status)) + '</button></div>'
 		}
 		var isSelf = svc.name === wardenServiceName
 		var btns = []
@@ -181,7 +186,17 @@
 			}
 		}
 
-		return btns.length ? '<div class="btn-group mt-2">' + btns.join('') + '</div>' : ''
+		return btns.length ? '<div class="btn-group">' + btns.join('') + '</div>' : ''
+	}
+
+	// Bottom row: controls left, Logs right. Mirrors renderTileFooter in dashboard.ts.
+	// The Logs link is static per tile; patchTile only rewrites .tile-actions.
+	function footerHtml(svc) {
+		var actions = actionButtonsHtml(svc)
+		var logs = logsLinkHtml(svc)
+		if (!actions && !logs) return ''
+		return '<div class="d-flex justify-content-between align-items-center gap-2 mt-2 tile-footer">' +
+			'<div class="tile-actions">' + actions + '</div>' + logs + '</div>'
 	}
 
 	function tileHtml(svc) {
@@ -189,18 +204,17 @@
 			' data-service="' + esc(svc.name) + '"' +
 			' data-hidden="' + (svc.hidden ? '1' : '0') + '"' +
 			' data-missing="' + (svc.missing ? '1' : '0') + '">' +
-			'<div class="card service-tile ' + tileClass(svc) + '">' +
+			'<div class="card service-tile shadow-sm ' + tileClass(svc) + '">' +
 			'<div class="card-body">' +
 			'<div class="d-flex justify-content-between align-items-start mb-1">' +
 			'<h6 class="card-title mb-0">' + esc(svc.display || svc.name) + '</h6>' +
 			'<div class="d-flex align-items-center gap-1">' +
-			logsLinkHtml(svc) +
-			'<span class="badge ' + badgeClass(svc) + ' status-badge">' + esc(statusLabel(svc)) + '</span>' +
+			'<span class="badge ' + badgeClass(svc) + ' status-badge text-uppercase">' + esc(statusLabel(svc)) + '</span>' +
 			manageMenuHtml(svc) +
 			'</div>' +
 			'</div>' +
 			(svc.description ? '<p class="card-text text-muted small mb-0">' + esc(svc.description) + '</p>' : '') +
-			actionButtonsHtml(svc) +
+			footerHtml(svc) +
 			'</div></div></div>'
 	}
 
@@ -258,7 +272,7 @@
 		var collapsed = isGroupCollapsed(name)
 
 		return '<div class="service-group mb-4' + (allHidden ? ' svc-hidden' : '') + '" data-group-name="' + esc(name) + '">' +
-			'<h5 class="d-flex align-items-center gap-2 mb-3 group-header" role="button" data-bs-toggle="collapse" data-bs-target="#' + cid + '" aria-expanded="' + (!collapsed) + '">' +
+			'<h5 class="d-flex align-items-center gap-2 mb-3 group-header user-select-none" role="button" data-bs-toggle="collapse" data-bs-target="#' + cid + '" aria-expanded="' + (!collapsed) + '">' +
 			'<span>' + esc(name) + '</span>' +
 			'<span class="badge ' + bc + ' group-pulse">' + running + '/' + total + '</span>' +
 			'</h5>' +
@@ -291,12 +305,12 @@
 
 	function patchTile(el, svc) {
 		var card = el.querySelector('.service-tile')
-		card.className = 'card service-tile ' + tileClass(svc)
+		card.className = 'card service-tile shadow-sm ' + tileClass(svc)
 
 		el.querySelector('.card-title').textContent = svc.display || svc.name
 
 		var badge = el.querySelector('.status-badge')
-		badge.className = 'badge ' + badgeClass(svc) + ' status-badge'
+		badge.className = 'badge ' + badgeClass(svc) + ' status-badge text-uppercase'
 		badge.textContent = statusLabel(svc)
 
 		var body = card.querySelector('.card-body')
@@ -313,10 +327,20 @@
 			descEl.remove()
 		}
 
-		var btnGroup = body.querySelector('.btn-group')
-		if (btnGroup) btnGroup.remove()
-		var btnHtml = actionButtonsHtml(svc)
-		if (btnHtml) body.insertAdjacentHTML('beforeend', btnHtml)
+		// Footer holds the controls (left) and the static Logs link (right). The Logs
+		// link never changes for a live tile, so only .tile-actions is rewritten; the
+		// whole footer is added/removed when the action set appears or disappears.
+		var footer = body.querySelector('.tile-footer')
+		var actionsHtml = actionButtonsHtml(svc)
+		var logsHtml = logsLinkHtml(svc)
+		if (!actionsHtml && !logsHtml) {
+			if (footer) footer.remove()
+		} else if (footer) {
+			var actionsSlot = footer.querySelector('.tile-actions')
+			if (actionsSlot) actionsSlot.innerHTML = actionsHtml
+		} else {
+			body.insertAdjacentHTML('beforeend', footerHtml(svc))
+		}
 
 		var editBtn = el.querySelector('.edit-btn')
 		if (editBtn) {
@@ -389,10 +413,18 @@
 		var filter = select ? select.value : ''
 		var showHidden = toggle ? toggle.checked : false
 
-		document.body.classList.toggle('show-hidden', showHidden)
-
+		// Groups hide when filtered out, or when every service in them is hidden
+		// and "Show hidden" is off. Hidden tiles hide outright, or dim when shown.
 		document.querySelectorAll('.service-group').forEach(function (el) {
-			el.classList.toggle('d-none', !!filter && el.dataset.groupName !== filter)
+			var filteredOut = !!filter && el.dataset.groupName !== filter
+			var hiddenGroup = el.classList.contains('svc-hidden') && !showHidden
+			el.classList.toggle('d-none', filteredOut || hiddenGroup)
+		})
+
+		document.querySelectorAll('.service-col.svc-hidden').forEach(function (el) {
+			el.classList.toggle('d-none', !showHidden)
+			var card = el.querySelector('.service-tile')
+			if (card) card.classList.toggle('opacity-50', showHidden)
 		})
 	}
 
