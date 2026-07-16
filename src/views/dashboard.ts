@@ -73,7 +73,7 @@ function pendingLabel(status: ServiceState): string {
 
 function renderLogsLink(svc: ServiceView, grants: Record<string, boolean>): string {
 	if (!grants['services.logs'] || svc.missing) return ''
-	return `<a class="btn btn-sm btn-outline-secondary logs-link py-0 px-1" href="/services/${encodeURIComponent(svc.name)}/logs" title="View logs for ${esc(svc.display ?? svc.name)}">Logs</a>`
+	return `<a class="btn btn-sm btn-outline-secondary" href="/services/${encodeURIComponent(svc.name)}/logs" title="View logs for ${esc(svc.display ?? svc.name)}">Logs</a>`
 }
 
 function renderManageMenu(svc: ServiceView, grants: Record<string, boolean>): string {
@@ -98,6 +98,11 @@ function renderManageMenu(svc: ServiceView, grants: Record<string, boolean>): st
 		}
 	}
 
+	if (grants['services.install'] && !svc.missing) {
+		if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
+		items.push(`<li><a class="dropdown-item" href="/services/${encodeURIComponent(svc.name)}/settings">Settings&hellip;</a></li>`)
+	}
+
 	if (grants['services.install'] && !svc.missing && svc.name !== config.wardenServiceName) {
 		if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
 		items.push(`<li><a class="dropdown-item text-danger uninstall-btn" href="#"
@@ -117,7 +122,7 @@ function renderActionButtons(svc: ServiceView, grants: Record<string, boolean>):
 	if (svc.missing || !svc.managed) return ''
 
 	if (isPending(svc.status)) {
-		return `<div class="btn-group mt-2"><button class="btn btn-outline-secondary btn-sm" type="button" disabled>${esc(pendingLabel(svc.status))}</button></div>`
+		return `<div class="btn-group"><button class="btn btn-outline-secondary btn-sm" type="button" disabled>${esc(pendingLabel(svc.status))}</button></div>`
 	}
 
 	const isSelf = svc.name === config.wardenServiceName
@@ -148,24 +153,36 @@ function renderActionButtons(svc: ServiceView, grants: Record<string, boolean>):
 	}
 
 	if (buttons.length === 0) return ''
-	return `<div class="btn-group mt-2">${buttons.join('')}</div>`
+	return `<div class="btn-group">${buttons.join('')}</div>`
+}
+
+// Bottom row: Start/Stop controls on the left, Logs on the right so it never
+// crowds the status badge. Kept out of the header's flex group entirely.
+function renderTileFooter(svc: ServiceView, grants: Record<string, boolean>): string {
+	const actions = renderActionButtons(svc, grants)
+	const logs = renderLogsLink(svc, grants)
+	if (!actions && !logs) return ''
+	return `
+		<div class="d-flex justify-content-between align-items-center gap-2 mt-2 tile-footer">
+			<div class="tile-actions">${actions}</div>
+			${logs}
+		</div>`
 }
 
 function renderTile(svc: ServiceView, grants: Record<string, boolean>): string {
 	return `
 		<div class="service-col col-xl-3 col-lg-4 col-md-6${svc.hidden ? ' svc-hidden' : ''}" data-service="${esc(svc.name)}" data-hidden="${svc.hidden ? '1' : '0'}" data-missing="${svc.missing ? '1' : '0'}">
-			<div class="card service-tile ${tileClass(svc)}">
+			<div class="card service-tile shadow-sm ${tileClass(svc)}">
 				<div class="card-body">
 					<div class="d-flex justify-content-between align-items-start mb-1">
 						<h6 class="card-title mb-0">${esc(svc.display ?? svc.name)}</h6>
 						<div class="d-flex align-items-center gap-1">
-							${renderLogsLink(svc, grants)}
-							<span class="badge ${statusBadgeClass(svc)} status-badge">${esc(statusLabel(svc))}</span>
+							<span class="badge ${statusBadgeClass(svc)} status-badge text-uppercase">${esc(statusLabel(svc))}</span>
 							${renderManageMenu(svc, grants)}
 						</div>
 					</div>
 					${svc.description ? `<p class="card-text text-muted small mb-0">${esc(svc.description)}</p>` : ''}
-					${renderActionButtons(svc, grants)}
+					${renderTileFooter(svc, grants)}
 				</div>
 			</div>
 		</div>`
@@ -182,7 +199,7 @@ function renderGroup(groupName: string, services: ServiceView[], grants: Record<
 
 	return `
 		<div class="service-group mb-4${allHidden ? ' svc-hidden' : ''}" data-group-name="${esc(groupName)}">
-			<h5 class="d-flex align-items-center gap-2 mb-3 group-header" role="button"
+			<h5 class="d-flex align-items-center gap-2 mb-3 group-header user-select-none" role="button"
 				data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="true">
 				<span>${esc(groupName)}</span>
 				<span class="badge ${badgeClass} group-pulse">${running}/${total}</span>
@@ -207,7 +224,7 @@ function renderToolbar(pulse: PulseData, groupNames: string[], grants: Record<st
 		? `<button type="button" class="btn btn-primary btn-sm" id="install-service-btn">+ Install service</button>`
 		: ''
 
-	return `<div id="pulse-bar" class="d-flex justify-content-between align-items-center gap-2 mb-3 flex-wrap">
+	return `<div id="pulse-bar" class="d-flex justify-content-between align-items-center gap-2 mb-3 py-2 border-bottom flex-wrap">
 		<div class="d-flex gap-2" id="pulse-badges">${parts.join('')}</div>
 		<div class="d-flex align-items-center gap-3">
 			<select class="form-select form-select-sm w-auto" id="group-filter" aria-label="Filter by group">
@@ -352,8 +369,8 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 		<div id="services-container">
 			${groupHtml}
 		</div>
-		<div id="reconnect-overlay" class="d-none">
-			<div class="reconnect-content">
+		<div id="reconnect-overlay" class="d-none position-fixed top-0 start-0 w-100 h-100 bg-dark bg-opacity-75 d-flex align-items-center justify-content-center z-3">
+			<div class="text-center">
 				<div class="spinner-border text-light mb-3" role="status"></div>
 				<h4 class="text-light">Reconnecting to Warden...</h4>
 			</div>

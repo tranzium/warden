@@ -22,7 +22,7 @@ export function logsPage(name: string, opts: PageOpts): Response {
 			</div>
 		</div>
 		<div id="logs-status" class="small text-muted mb-2">Loading&hellip;</div>
-		<pre id="logs-pane" class="logs-pane"></pre>
+		<pre id="logs-pane" class="logs-pane font-monospace bg-dark text-light p-3 rounded overflow-auto text-break mb-0"></pre>
 		<script>window.__WARDEN_LOGS__ = ${JSON.stringify({ service: name })};</script>`
 
 	return page(`Logs — ${name}`, body, { ...opts, scripts: true, script: '/static/js/logs.js' })
