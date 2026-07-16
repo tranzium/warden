@@ -115,16 +115,20 @@
 
 	// --- Rendering (HTML string builders, used both for fresh nodes and initial page) ---
 
+	// Logs and Settings open in a new tab so the dashboard always stays open.
 	function logsLinkHtml(svc) {
 		if (!grants['services.logs'] || svc.missing) return ''
-		return '<a class="btn btn-sm btn-outline-secondary" href="/services/' + encodeURIComponent(svc.name) + '/logs" title="View logs for ' + esc(svc.display || svc.name) + '">Logs</a>'
+		return '<a class="btn btn-sm btn-outline-secondary" href="/services/' + encodeURIComponent(svc.name) + '/logs" target="_blank" rel="noopener" title="View logs for ' + esc(svc.display || svc.name) + '">Logs</a>'
 	}
 
-	function manageMenuHtml(svc) {
+	function detailsMenuItemsHtml(svc) {
 		var items = []
 
+		if (grants['services.install'] && !svc.missing) {
+			items.push('<li><a class="dropdown-item" href="/services/' + encodeURIComponent(svc.name) + '/settings" target="_blank" rel="noopener">Settings</a></li>')
+		}
+
 		if (grants['services.register']) {
-			if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
 			items.push('<li><a class="dropdown-item edit-btn" href="#"' +
 				' data-service="' + esc(svc.name) + '"' +
 				' data-display="' + esc(svc.display || '') + '"' +
@@ -134,30 +138,38 @@
 			items.push('<li><a class="dropdown-item toggle-hidden-btn" href="#"' +
 				' data-service="' + esc(svc.name) + '"' +
 				' data-hidden="' + (svc.hidden ? '1' : '0') + '">' + (svc.hidden ? 'Show' : 'Hide') + '</a></li>')
-			if (svc.missing) {
-				items.push('<li><a class="dropdown-item text-danger delete-btn" href="#"' +
-					' data-service="' + esc(svc.name) + '"' +
-					' data-display="' + esc(svc.display || svc.name) + '"' +
-					' data-confirm="Remove the entry for ' + esc(svc.display || svc.name) + '? Its saved group and settings will be forgotten.">Remove entry</a></li>')
-			}
 		}
 
-		if (grants['services.install'] && !svc.missing) {
-			if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
-			items.push('<li><a class="dropdown-item" href="/services/' + encodeURIComponent(svc.name) + '/settings">Settings&hellip;</a></li>')
-		}
-
-		if (grants['services.install'] && !svc.missing && svc.name !== wardenServiceName) {
-			if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
-			items.push('<li><a class="dropdown-item text-danger uninstall-btn" href="#"' +
+		// Destructive items sit together behind a single divider
+		var danger = []
+		if (grants['services.register'] && svc.missing) {
+			danger.push('<li><a class="dropdown-item text-danger delete-btn" href="#"' +
 				' data-service="' + esc(svc.name) + '"' +
-				' data-display="' + esc(svc.display || svc.name) + '">Uninstall&hellip;</a></li>')
+				' data-display="' + esc(svc.display || svc.name) + '"' +
+				' data-confirm="Remove the entry for ' + esc(svc.display || svc.name) + '? Its saved group and settings will be forgotten.">Remove entry</a></li>')
+		}
+		if (grants['services.install'] && !svc.missing && svc.name !== wardenServiceName) {
+			danger.push('<li><a class="dropdown-item text-danger uninstall-btn" href="#"' +
+				' data-service="' + esc(svc.name) + '"' +
+				' data-display="' + esc(svc.display || svc.name) + '">Uninstall</a></li>')
+		}
+		if (danger.length) {
+			if (items.length) items.push('<li><hr class="dropdown-divider"></li>')
+			items = items.concat(danger)
 		}
 
-		if (!items.length) return ''
-		return '<div class="dropdown">' +
-			'<button class="btn btn-sm btn-outline-secondary border-0 py-0 px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false">&#8942;</button>' +
-			'<ul class="dropdown-menu dropdown-menu-end">' + items.join('') + '</ul></div>'
+		return items
+	}
+
+	// One "details" unit per tile: Logs plus an attached caret dropdown holding
+	// Settings/Edit/Hide/Uninstall. Mirrors renderDetailsCluster in dashboard.ts.
+	// Static across polls — patchTile never touches it.
+	function detailsClusterHtml(svc) {
+		var logs = logsLinkHtml(svc)
+		var items = detailsMenuItemsHtml(svc)
+		if (!items.length) return logs
+		var toggle = '<button class="btn btn-sm btn-outline-secondary dropdown-toggle' + (logs ? ' dropdown-toggle-split' : '') + '" type="button" data-bs-toggle="dropdown" aria-expanded="false"><span class="visually-hidden">More actions</span></button>'
+		return '<div class="btn-group">' + logs + toggle + '<ul class="dropdown-menu dropdown-menu-end">' + items.join('') + '</ul></div>'
 	}
 
 	function actionButtonsHtml(svc) {
@@ -189,14 +201,15 @@
 		return btns.length ? '<div class="btn-group">' + btns.join('') + '</div>' : ''
 	}
 
-	// Bottom row: controls left, Logs right. Mirrors renderTileFooter in dashboard.ts.
-	// The Logs link is static per tile; patchTile only rewrites .tile-actions.
+	// Bottom row: controls left, details cluster right. Mirrors renderTileFooter in
+	// dashboard.ts. The details cluster is static per tile; patchTile only rewrites
+	// .tile-actions.
 	function footerHtml(svc) {
 		var actions = actionButtonsHtml(svc)
-		var logs = logsLinkHtml(svc)
-		if (!actions && !logs) return ''
+		var details = detailsClusterHtml(svc)
+		if (!actions && !details) return ''
 		return '<div class="d-flex justify-content-between align-items-center gap-2 mt-2 tile-footer">' +
-			'<div class="tile-actions">' + actions + '</div>' + logs + '</div>'
+			'<div class="tile-actions">' + actions + '</div>' + details + '</div>'
 	}
 
 	function tileHtml(svc) {
@@ -208,10 +221,7 @@
 			'<div class="card-body">' +
 			'<div class="d-flex justify-content-between align-items-start mb-1">' +
 			'<h6 class="card-title mb-0">' + esc(svc.display || svc.name) + '</h6>' +
-			'<div class="d-flex align-items-center gap-1">' +
 			'<span class="badge ' + badgeClass(svc) + ' status-badge text-uppercase">' + esc(statusLabel(svc)) + '</span>' +
-			manageMenuHtml(svc) +
-			'</div>' +
 			'</div>' +
 			(svc.description ? '<p class="card-text text-muted small mb-0">' + esc(svc.description) + '</p>' : '') +
 			footerHtml(svc) +
@@ -271,10 +281,12 @@
 		var cid = 'group-' + name.replace(/\s+/g, '-').toLowerCase()
 		var collapsed = isGroupCollapsed(name)
 
-		return '<div class="service-group mb-4' + (allHidden ? ' svc-hidden' : '') + '" data-group-name="' + esc(name) + '">' +
+		// Band alternation (bg-body-secondary) is assigned by applyFilters over
+		// visible groups, so a fresh group needs no band class here.
+		return '<div class="service-group mb-4 p-3 rounded-3' + (allHidden ? ' svc-hidden' : '') + '" data-group-name="' + esc(name) + '">' +
 			'<h5 class="d-flex align-items-center gap-2 mb-3 group-header user-select-none" role="button" data-bs-toggle="collapse" data-bs-target="#' + cid + '" aria-expanded="' + (!collapsed) + '">' +
+			'<span class="badge ' + bc + ' group-pulse text-center">' + running + '/' + total + '</span>' +
 			'<span>' + esc(name) + '</span>' +
-			'<span class="badge ' + bc + ' group-pulse">' + running + '/' + total + '</span>' +
 			'</h5>' +
 			'<div class="collapse' + (collapsed ? '' : ' show') + '" id="' + cid + '">' +
 			'<div class="row g-3"></div></div></div>'
@@ -327,13 +339,14 @@
 			descEl.remove()
 		}
 
-		// Footer holds the controls (left) and the static Logs link (right). The Logs
-		// link never changes for a live tile, so only .tile-actions is rewritten; the
-		// whole footer is added/removed when the action set appears or disappears.
+		// Footer holds the controls (left) and the static details cluster (right).
+		// The cluster never changes for a live tile — hidden/missing flips rebuild the
+		// whole tile — so only .tile-actions is rewritten; the whole footer is
+		// added/removed when the action set appears or disappears.
 		var footer = body.querySelector('.tile-footer')
 		var actionsHtml = actionButtonsHtml(svc)
-		var logsHtml = logsLinkHtml(svc)
-		if (!actionsHtml && !logsHtml) {
+		var detailsHtml = detailsClusterHtml(svc)
+		if (!actionsHtml && !detailsHtml) {
 			if (footer) footer.remove()
 		} else if (footer) {
 			var actionsSlot = footer.querySelector('.tile-actions')
@@ -361,7 +374,7 @@
 		groupEl.classList.toggle('svc-hidden', allHidden)
 		var badge = groupEl.querySelector('.group-pulse')
 		if (!badge) return
-		badge.className = 'badge ' + (allUp ? 'bg-success' : 'bg-warning text-dark') + ' group-pulse'
+		badge.className = 'badge ' + (allUp ? 'bg-success' : 'bg-warning text-dark') + ' group-pulse text-center'
 		badge.textContent = running + '/' + total
 	}
 
@@ -425,6 +438,19 @@
 			el.classList.toggle('d-none', !showHidden)
 			var card = el.querySelector('.service-tile')
 			if (card) card.classList.toggle('opacity-50', showHidden)
+		})
+
+		// Reassign the alternating band over visible groups only — a CSS
+		// :nth-of-type approach would count d-none groups and let two
+		// same-colour bands sit adjacent after filtering.
+		var visibleIndex = 0
+		document.querySelectorAll('.service-group').forEach(function (el) {
+			if (el.classList.contains('d-none')) {
+				el.classList.remove('bg-body-secondary')
+				return
+			}
+			el.classList.toggle('bg-body-secondary', visibleIndex % 2 === 1)
+			visibleIndex++
 		})
 	}
 

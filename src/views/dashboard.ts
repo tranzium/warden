@@ -71,16 +71,20 @@ function pendingLabel(status: ServiceState): string {
 	}
 }
 
+// Logs and Settings open in a new tab so the dashboard always stays open.
 function renderLogsLink(svc: ServiceView, grants: Record<string, boolean>): string {
 	if (!grants['services.logs'] || svc.missing) return ''
-	return `<a class="btn btn-sm btn-outline-secondary" href="/services/${encodeURIComponent(svc.name)}/logs" title="View logs for ${esc(svc.display ?? svc.name)}">Logs</a>`
+	return `<a class="btn btn-sm btn-outline-secondary" href="/services/${encodeURIComponent(svc.name)}/logs" target="_blank" rel="noopener" title="View logs for ${esc(svc.display ?? svc.name)}">Logs</a>`
 }
 
-function renderManageMenu(svc: ServiceView, grants: Record<string, boolean>): string {
+function renderDetailsMenuItems(svc: ServiceView, grants: Record<string, boolean>): string[] {
 	const items: string[] = []
 
+	if (grants['services.install'] && !svc.missing) {
+		items.push(`<li><a class="dropdown-item" href="/services/${encodeURIComponent(svc.name)}/settings" target="_blank" rel="noopener">Settings</a></li>`)
+	}
+
 	if (grants['services.register']) {
-		if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
 		items.push(`<li><a class="dropdown-item edit-btn" href="#"
 			data-service="${esc(svc.name)}"
 			data-display="${esc(svc.display ?? '')}"
@@ -90,32 +94,37 @@ function renderManageMenu(svc: ServiceView, grants: Record<string, boolean>): st
 		items.push(`<li><a class="dropdown-item toggle-hidden-btn" href="#"
 			data-service="${esc(svc.name)}"
 			data-hidden="${svc.hidden ? '1' : '0'}">${svc.hidden ? 'Show' : 'Hide'}</a></li>`)
-		if (svc.missing) {
-			items.push(`<li><a class="dropdown-item text-danger delete-btn" href="#"
-				data-service="${esc(svc.name)}"
-				data-display="${esc(svc.display ?? svc.name)}"
-				data-confirm="Remove the entry for ${esc(svc.display ?? svc.name)}? Its saved group and settings will be forgotten.">Remove entry</a></li>`)
-		}
 	}
 
-	if (grants['services.install'] && !svc.missing) {
-		if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
-		items.push(`<li><a class="dropdown-item" href="/services/${encodeURIComponent(svc.name)}/settings">Settings&hellip;</a></li>`)
-	}
-
-	if (grants['services.install'] && !svc.missing && svc.name !== config.wardenServiceName) {
-		if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
-		items.push(`<li><a class="dropdown-item text-danger uninstall-btn" href="#"
+	// Destructive items sit together behind a single divider
+	const danger: string[] = []
+	if (grants['services.register'] && svc.missing) {
+		danger.push(`<li><a class="dropdown-item text-danger delete-btn" href="#"
 			data-service="${esc(svc.name)}"
-			data-display="${esc(svc.display ?? svc.name)}">Uninstall&hellip;</a></li>`)
+			data-display="${esc(svc.display ?? svc.name)}"
+			data-confirm="Remove the entry for ${esc(svc.display ?? svc.name)}? Its saved group and settings will be forgotten.">Remove entry</a></li>`)
+	}
+	if (grants['services.install'] && !svc.missing && svc.name !== config.wardenServiceName) {
+		danger.push(`<li><a class="dropdown-item text-danger uninstall-btn" href="#"
+			data-service="${esc(svc.name)}"
+			data-display="${esc(svc.display ?? svc.name)}">Uninstall</a></li>`)
+	}
+	if (danger.length > 0) {
+		if (items.length > 0) items.push('<li><hr class="dropdown-divider"></li>')
+		items.push(...danger)
 	}
 
-	if (items.length === 0) return ''
-	return `
-		<div class="dropdown">
-			<button class="btn btn-sm btn-outline-secondary border-0 py-0 px-1" type="button" data-bs-toggle="dropdown" aria-expanded="false">&#8942;</button>
-			<ul class="dropdown-menu dropdown-menu-end">${items.join('')}</ul>
-		</div>`
+	return items
+}
+
+// One "details" unit per tile: Logs plus an attached caret dropdown holding
+// Settings/Edit/Hide/Uninstall. Static across polls — patchTile never touches it.
+function renderDetailsCluster(svc: ServiceView, grants: Record<string, boolean>): string {
+	const logs = renderLogsLink(svc, grants)
+	const items = renderDetailsMenuItems(svc, grants)
+	if (items.length === 0) return logs
+	const toggle = `<button class="btn btn-sm btn-outline-secondary dropdown-toggle${logs ? ' dropdown-toggle-split' : ''}" type="button" data-bs-toggle="dropdown" aria-expanded="false"><span class="visually-hidden">More actions</span></button>`
+	return `<div class="btn-group">${logs}${toggle}<ul class="dropdown-menu dropdown-menu-end">${items.join('')}</ul></div>`
 }
 
 function renderActionButtons(svc: ServiceView, grants: Record<string, boolean>): string {
@@ -156,16 +165,17 @@ function renderActionButtons(svc: ServiceView, grants: Record<string, boolean>):
 	return `<div class="btn-group">${buttons.join('')}</div>`
 }
 
-// Bottom row: Start/Stop controls on the left, Logs on the right so it never
-// crowds the status badge. Kept out of the header's flex group entirely.
+// Bottom row: Start/Stop controls on the left, the details cluster on the right,
+// so nothing crowds the status badge in the header. Only .tile-actions is
+// state-dependent; the details cluster is static per tile lifetime.
 function renderTileFooter(svc: ServiceView, grants: Record<string, boolean>): string {
 	const actions = renderActionButtons(svc, grants)
-	const logs = renderLogsLink(svc, grants)
-	if (!actions && !logs) return ''
+	const details = renderDetailsCluster(svc, grants)
+	if (!actions && !details) return ''
 	return `
 		<div class="d-flex justify-content-between align-items-center gap-2 mt-2 tile-footer">
 			<div class="tile-actions">${actions}</div>
-			${logs}
+			${details}
 		</div>`
 }
 
@@ -176,10 +186,7 @@ function renderTile(svc: ServiceView, grants: Record<string, boolean>): string {
 				<div class="card-body">
 					<div class="d-flex justify-content-between align-items-start mb-1">
 						<h6 class="card-title mb-0">${esc(svc.display ?? svc.name)}</h6>
-						<div class="d-flex align-items-center gap-1">
-							<span class="badge ${statusBadgeClass(svc)} status-badge text-uppercase">${esc(statusLabel(svc))}</span>
-							${renderManageMenu(svc, grants)}
-						</div>
+						<span class="badge ${statusBadgeClass(svc)} status-badge text-uppercase">${esc(statusLabel(svc))}</span>
 					</div>
 					${svc.description ? `<p class="card-text text-muted small mb-0">${esc(svc.description)}</p>` : ''}
 					${renderTileFooter(svc, grants)}
@@ -188,7 +195,11 @@ function renderTile(svc: ServiceView, grants: Record<string, boolean>): string {
 		</div>`
 }
 
-function renderGroup(groupName: string, services: ServiceView[], grants: Record<string, boolean>): string {
+// `index` drives the alternating band so adjacent groups read as distinct
+// click/collapse regions. First paint counts every rendered group; applyFilters
+// in poll.js immediately reassigns over *visible* groups so filtering never
+// leaves two same-colour bands adjacent.
+function renderGroup(groupName: string, services: ServiceView[], grants: Record<string, boolean>, index: number): string {
 	const running = services.filter(s => s.status === 'Running').length
 	const total = services.length
 	const allUp = running === total
@@ -198,11 +209,11 @@ function renderGroup(groupName: string, services: ServiceView[], grants: Record<
 	const collapseId = `group-${groupName.replace(/\s+/g, '-').toLowerCase()}`
 
 	return `
-		<div class="service-group mb-4${allHidden ? ' svc-hidden' : ''}" data-group-name="${esc(groupName)}">
+		<div class="service-group mb-4 p-3 rounded-3${index % 2 === 1 ? ' bg-body-secondary' : ''}${allHidden ? ' svc-hidden' : ''}" data-group-name="${esc(groupName)}">
 			<h5 class="d-flex align-items-center gap-2 mb-3 group-header user-select-none" role="button"
 				data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="true">
+				<span class="badge ${badgeClass} group-pulse text-center">${running}/${total}</span>
 				<span>${esc(groupName)}</span>
-				<span class="badge ${badgeClass} group-pulse">${running}/${total}</span>
 			</h5>
 			<div class="collapse show" id="${collapseId}">
 				<div class="row g-3">
@@ -351,7 +362,7 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 				// Alphabetical by group name, matching the poll's client-side order —
 				// otherwise groups visibly reshuffle on the first poll after page load
 				.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-				.map(([name, svcs]) => renderGroup(name, svcs, grants))
+				.map(([name, svcs], i) => renderGroup(name, svcs, grants, i))
 				.join('')
 
 	const wardenConfig = JSON.stringify({

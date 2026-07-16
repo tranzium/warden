@@ -9,6 +9,14 @@
 	white-space: pre-wrap;
 }
 
+/* Group count badge (X/Y) sits before the title; a fixed minimum width keeps the
+   titles aligned across groups regardless of digit count. Bootstrap has no
+   min-width or tabular-nums utility. Two digits per side is the design ceiling. */
+.group-pulse {
+	min-width: 3.4rem;
+	font-variant-numeric: tabular-nums;
+}
+
 /* Animated collapse caret for group headers. Bootstrap ships this only as part of
    the accordion component; the dashboard uses plain collapse, so it lives here. */
 .group-header::after {
