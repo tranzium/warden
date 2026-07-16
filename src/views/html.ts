@@ -15,7 +15,7 @@ const BOOTSTRAP_JS = 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/boots
 function renderNav(opts: PageOpts): string {
 	return `
 	<nav class="navbar navbar-dark bg-dark">
-		<div class="container-fluid">
+		<div class="container-xxl">
 			<a class="navbar-brand fw-bold" href="/">WARDEN</a>
 			<div class="d-flex align-items-center gap-2">
 				<span id="self-status" class="badge bg-success" title="Warden is running">&#9679; warden</span>
@@ -44,7 +44,7 @@ function pageHtml(status: number, title: string, body: string, opts?: PageOpts):
 </head>
 <body>
 ${nav}
-<main class="container-fluid mt-3">
+<main class="container-xxl mt-3">
 	${body}
 </main>
 <script src="${BOOTSTRAP_JS}"></script>
