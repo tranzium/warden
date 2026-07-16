@@ -2,11 +2,8 @@ import { page, esc, type PageOpts } from './html'
 
 export function logsPage(name: string, opts: PageOpts): Response {
 	const body = `
-		<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
-			<div>
-				<a href="/" class="small d-block mb-1">&larr; Back to dashboard</a>
-				<h4 class="mb-0">${esc(name)} &mdash; Logs</h4>
-			</div>
+		<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+			<h4 class="mb-0">${esc(name)} &mdash; Logs</h4>
 			<div class="d-flex align-items-center gap-2 flex-wrap">
 				<div class="btn-group btn-group-sm" role="group" id="stream-tabs">
 					<button type="button" class="btn btn-outline-secondary active" data-stream="stdout">stdout</button>
