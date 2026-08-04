@@ -1,7 +1,8 @@
 @echo off
 REM Warden NSSM service installer
 REM Run as Administrator. Edit variables at the top before running.
-REM Requires: nssm.exe on PATH (https://nssm.cc)
+REM Requires: nssm.exe on PATH (https://nssm.cc — on Windows 10 Creators Update
+REM and newer, use the 2.24-101 prerelease; stable 2.24 fails to start services)
 
 set SERVICE=warden
 set BUN=D:\bin\bun.exe
@@ -16,7 +17,7 @@ REM ---- install ----
 nssm install %SERVICE% "%BUN%" "run src/server.ts"
 nssm set %SERVICE% AppDirectory "%WORKDIR%"
 nssm set %SERVICE% DisplayName "Warden"
-nssm set %SERVICE% Description "Warden — Windows service control panel with Orbit auth"
+nssm set %SERVICE% Description "Warden - Windows service control panel"
 nssm set %SERVICE% Start SERVICE_AUTO_START
 
 REM Stdout / Stderr logs
@@ -32,18 +33,19 @@ nssm set %SERVICE% AppRestartDelay 5000
 nssm set %SERVICE% AppExit Default Restart
 
 REM ---- environment ----
-REM Edit the values below before running.
+REM Edit the values below before running. Generate AUTH_PASSWORD_HASH with
+REM `bun run scripts/hash-password.ts <password>` — NSSM's AppEnvironmentExtra
+REM stores it as-is (no shell expansion), so paste the hash unescaped here,
+REM unlike the backslash-escaped form used in a .env file (see .env.example).
+REM To defer auth to an Orbit tenant instead, set AUTH_MODE=orbit and its
+REM ORBIT_*/OAUTH_* variables — see docs/orbit-setup.md.
 nssm set %SERVICE% AppEnvironmentExtra ^
-    "ORBIT_INTROSPECT_URL=http://127.0.0.1:3000" ^
-    "ORBIT_API_KEY=change-me" ^
-    "ORBIT_TENANT_ID=change-me" ^
-    "OAUTH_CLIENT_ID=change-me" ^
-    "OAUTH_CLIENT_SECRET=" ^
-    "OAUTH_REDIRECT_URI=https://warden.wrift.ca/callback" ^
-    "OAUTH_AUTHORIZE_URL=https://oauth.wrift.ca/oauth2/authorize" ^
-    "OAUTH_TOKEN_URL=https://oauth.wrift.ca/oauth2/token" ^
+    "AUTH_MODE=local" ^
+    "AUTH_USERNAME=admin" ^
+    "AUTH_PASSWORD_HASH=change-me" ^
     "COOKIE_SECRET=change-me-32-chars-minimum-required" ^
     "PORT=3004" ^
+    "HOST=127.0.0.1" ^
     "DB_PATH=./data/warden.db"
 
 echo Service "%SERVICE%" installed.

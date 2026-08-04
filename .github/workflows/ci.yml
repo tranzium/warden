@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    # NSSM/service-control routes need a real Windows service host and admin
+    # rights, which this job doesn't have — it covers typecheck + the smoke
+    # tests (session/service-overlay roundtrips, schema migration), not the
+    # NSSM integration itself.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bunx tsc --noEmit
+      - run: bun run test
