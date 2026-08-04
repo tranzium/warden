@@ -1,4 +1,5 @@
 import { config } from '../shared/config'
+import { ALL_PERMISSIONS } from './permissions'
 
 export interface IntrospectResult {
 	authenticated: boolean
@@ -13,16 +14,6 @@ export interface TokenResult {
 	expires_in: number
 	scope: string
 }
-
-const ALL_PERMISSIONS = [
-	'services.view',
-	'services.start',
-	'services.stop',
-	'services.restart',
-	'services.register',
-	'services.install',
-	'services.logs',
-]
 
 export async function introspect(accessToken: string): Promise<IntrospectResult> {
 	const res = await fetch(`${config.orbitIntrospectUrl}/check`, {

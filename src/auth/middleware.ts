@@ -1,5 +1,6 @@
 import { parseCookies, verifySession, clearSessionCookie } from './cookies'
 import { introspect } from './orbit'
+import { config } from '../shared/config'
 import { getSession, touchSession, refreshSessionGrants, markSessionRefreshed } from '../db/client'
 
 export type AuthContext = {
@@ -9,9 +10,10 @@ export type AuthContext = {
 }
 
 export async function authMiddleware(req: Request): Promise<AuthContext | Response> {
-	// Bearer header (API clients): introspect the token directly, no session
+	// Bearer header (API clients): only meaningful when an Orbit tenant can introspect it
 	const authHeader = req.headers.get('authorization')
 	if (authHeader?.startsWith('Bearer ')) {
+		if (config.authMode !== 'orbit') return authError(req)
 		const accessToken = authHeader.slice(7)
 		const result = await introspect(accessToken)
 		if (!result.authenticated || !result.user) return authError(req)
@@ -36,8 +38,9 @@ export async function authMiddleware(req: Request): Promise<AuthContext | Respon
 	}
 
 	// Re-introspect at most every 10 minutes to pick up grant changes while the
-	// token is still valid; once it expires, cached grants carry the session
-	if (session.stale) {
+	// token is still valid; once it expires, cached grants carry the session.
+	// Local sessions have no external grant source, so there's nothing to refresh.
+	if (config.authMode === 'orbit' && session.stale) {
 		const result = await introspect(session.access_token)
 		if (result.authenticated && result.user) {
 			grants = result.grants ?? {}
