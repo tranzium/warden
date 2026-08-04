@@ -17,6 +17,7 @@ import { type AuthContext, hasPermission } from '../auth/middleware'
 import { ok, created, noContent, badRequest, forbidden, notFound, unprocessable, internalError } from '../shared/http'
 import { dashboardPage, type ServiceView } from '../views/dashboard'
 import { config } from '../shared/config'
+import pkg from '../../package.json'
 
 // Live truth: nssm list (membership) + one sc query (display + state).
 // DB rows are a metadata overlay; rows without a live service render as Missing.
@@ -97,7 +98,7 @@ export async function listHandler(ctx: AuthContext): Promise<Response> {
 		self: {
 			name: config.wardenServiceName,
 			uptime: Math.floor(process.uptime()),
-			version: '0.1.0',
+			version: pkg.version,
 		},
 	})
 }

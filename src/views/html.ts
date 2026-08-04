@@ -9,8 +9,10 @@ export type PageOpts = {
 	script?: string
 }
 
-const BOOTSTRAP_CSS = 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css'
-const BOOTSTRAP_JS = 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'
+const BOOTSTRAP_CSS = 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css'
+const BOOTSTRAP_CSS_INTEGRITY = 'sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB'
+const BOOTSTRAP_JS = 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js'
+const BOOTSTRAP_JS_INTEGRITY = 'sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI'
 
 function renderNav(opts: PageOpts): string {
 	return `
@@ -39,7 +41,7 @@ function pageHtml(status: number, title: string, body: string, opts?: PageOpts):
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>${esc(title)} - Warden</title>
-	<link rel="stylesheet" href="${BOOTSTRAP_CSS}">
+	<link rel="stylesheet" href="${BOOTSTRAP_CSS}" integrity="${BOOTSTRAP_CSS_INTEGRITY}" crossorigin="anonymous">
 	<link rel="stylesheet" href="/static/css/warden.css">
 </head>
 <body>
@@ -47,7 +49,7 @@ ${nav}
 <main class="container-xxl mt-3">
 	${body}
 </main>
-<script src="${BOOTSTRAP_JS}"></script>
+<script src="${BOOTSTRAP_JS}" integrity="${BOOTSTRAP_JS_INTEGRITY}" crossorigin="anonymous"></script>
 ${scriptTag}
 </body>
 </html>`
