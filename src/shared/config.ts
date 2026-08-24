@@ -25,22 +25,37 @@ if (isNaN(sessionTtlHours) || sessionTtlHours < 1) {
 	process.exit(1)
 }
 
+// AUTH_MODE=local (default): single-operator login, no external dependency.
+// AUTH_MODE=orbit: delegate auth to an Orbit tenant — see docs/orbit-setup.md.
+const authMode = process.env.AUTH_MODE === 'orbit' ? 'orbit' : 'local'
+
+if (authMode === 'local' && !process.env.AUTH_PASSWORD_HASH) {
+	console.error('AUTH_PASSWORD_HASH is required in local auth mode — generate one with: bun run scripts/hash-password.ts <password>')
+	process.exit(1)
+}
+
+const oauthRedirectUri = authMode === 'orbit' ? required('OAUTH_REDIRECT_URI') : (process.env.OAUTH_REDIRECT_URI ?? '')
+
 export const config = Object.freeze({
 	port,
-	host: process.env.HOST ?? '0.0.0.0',
+	host: process.env.HOST ?? '127.0.0.1',
 	cookieSecret,
 	dbPath: process.env.DB_PATH ?? './data/warden.db',
 	sessionTtlHours,
 
-	orbitIntrospectUrl: required('ORBIT_INTROSPECT_URL'),
-	orbitApiKey: required('ORBIT_API_KEY'),
-	orbitTenantId: required('ORBIT_TENANT_ID'),
+	authMode,
+	localUsername: process.env.AUTH_USERNAME ?? 'admin',
+	localPasswordHash: process.env.AUTH_PASSWORD_HASH ?? '',
 
-	oauthClientId: required('OAUTH_CLIENT_ID'),
+	orbitIntrospectUrl: authMode === 'orbit' ? required('ORBIT_INTROSPECT_URL') : (process.env.ORBIT_INTROSPECT_URL ?? ''),
+	orbitApiKey: authMode === 'orbit' ? required('ORBIT_API_KEY') : (process.env.ORBIT_API_KEY ?? ''),
+	orbitTenantId: authMode === 'orbit' ? required('ORBIT_TENANT_ID') : (process.env.ORBIT_TENANT_ID ?? ''),
+
+	oauthClientId: authMode === 'orbit' ? required('OAUTH_CLIENT_ID') : (process.env.OAUTH_CLIENT_ID ?? ''),
 	oauthClientSecret: process.env.OAUTH_CLIENT_SECRET ?? '',
-	oauthRedirectUri: required('OAUTH_REDIRECT_URI'),
-	oauthAuthorizeUrl: required('OAUTH_AUTHORIZE_URL'),
-	oauthTokenUrl: required('OAUTH_TOKEN_URL'),
+	oauthRedirectUri,
+	oauthAuthorizeUrl: authMode === 'orbit' ? required('OAUTH_AUTHORIZE_URL') : (process.env.OAUTH_AUTHORIZE_URL ?? ''),
+	oauthTokenUrl: authMode === 'orbit' ? required('OAUTH_TOKEN_URL') : (process.env.OAUTH_TOKEN_URL ?? ''),
 	oauthConsentKey: (() => {
 		const raw = process.env.OAUTH_CONSENT_KEY
 		if (!raw) return null
@@ -57,5 +72,5 @@ export const config = Object.freeze({
 	nssmPath: process.env.NSSM_PATH ?? 'nssm',
 	wardenServiceName: process.env.WARDEN_SERVICE_NAME ?? 'warden',
 	logsDir: process.env.LOGS_DIR ?? 'D:\\logs',
-	secure: (process.env.OAUTH_REDIRECT_URI ?? '').startsWith('https://'),
+	secure: process.env.SECURE_COOKIES === 'true' || oauthRedirectUri.startsWith('https://'),
 })

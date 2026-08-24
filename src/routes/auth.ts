@@ -1,6 +1,8 @@
 import { parseCookies, verifySession, verifyPkce, signSession, signPkce, sessionCookie, clearSessionCookie, pkceCookie, clearPkceCookie } from '../auth/cookies'
 import { buildAuthorizeUrl, exchangeCode, introspect, generatePkce } from '../auth/orbit'
 import { resolveChallenge, authenticateUser, signAndSubmitConsent } from '../auth/consent'
+import { verifyLocalCredentials } from '../auth/local'
+import { allGrants } from '../auth/permissions'
 import { createSession, getSession, deleteSession } from '../db/client'
 import { config } from '../shared/config'
 import { loginPage } from '../views/login'
@@ -15,6 +17,25 @@ export function loginHandler(req: Request): Response {
 		return new Response(null, { status: 302, headers: { Location: '/' } })
 	}
 	return loginPage()
+}
+
+export async function localLoginPostHandler(req: Request): Promise<Response> {
+	const form = await req.formData()
+	const username = String(form.get('username') ?? '')
+	const password = String(form.get('password') ?? '')
+
+	const valid = await verifyLocalCredentials(username, password)
+	if (!valid) return loginPage('Invalid username or password')
+
+	const sid = createSession({
+		accessToken: 'local',
+		user: { id: 'local', email: username, name: username },
+		grants: allGrants(),
+	})
+
+	const headers = new Headers({ Location: '/' })
+	headers.append('Set-Cookie', sessionCookie(signSession(sid)))
+	return new Response(null, { status: 302, headers })
 }
 
 export async function loginStartHandler(): Promise<Response> {

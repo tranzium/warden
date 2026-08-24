@@ -4,7 +4,7 @@
 	"private": true,
 	"scripts": {
 		"start": "bun run src/server.ts",
-		"test": "bun test"
+		"test": "bun run scripts/smoke.ts && bun run scripts/smoke-migrate.ts"
 	},
 	"devDependencies": {
 		"@types/bun": "latest",

@@ -16,13 +16,7 @@ old.close()
 
 process.env.DB_PATH = './data-test/warden.db'
 process.env.COOKIE_SECRET = '0123456789abcdef0123456789abcdef'
-process.env.ORBIT_INTROSPECT_URL = 'http://x'
-process.env.ORBIT_API_KEY = 'x'
-process.env.ORBIT_TENANT_ID = 'x'
-process.env.OAUTH_CLIENT_ID = 'x'
-process.env.OAUTH_REDIRECT_URI = 'http://x/callback'
-process.env.OAUTH_AUTHORIZE_URL = 'http://x/a'
-process.env.OAUTH_TOKEN_URL = 'http://x/t'
+process.env.AUTH_PASSWORD_HASH = await Bun.password.hash('smoke-test-password')
 
 const db = await import('../src/db/client')
 const row = db.getService('legacy')
