@@ -7,7 +7,7 @@
 	const cfg = window.__WARDEN__ || {}
 	const grants = cfg.grants || {}
 	const wardenServiceName = cfg.wardenServiceName || 'warden'
-	const logsDir = cfg.logsDir || 'D:\\logs'
+	const logsDir = cfg.logsDir || './logs'
 
 	let pollTimer = null
 	let reconnecting = false

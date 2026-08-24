@@ -5,9 +5,9 @@ REM Requires: nssm.exe on PATH (https://nssm.cc — on Windows 10 Creators Updat
 REM and newer, use the 2.24-101 prerelease; stable 2.24 fails to start services)
 
 set SERVICE=warden
-set BUN=D:\bin\bun.exe
-set WORKDIR=D:\projects\warden
-set LOGDIR=D:\logs\warden
+set BUN=C:\path\to\bun.exe
+set WORKDIR=C:\path\to\warden
+set LOGDIR=%WORKDIR%\logs
 
 REM ---- pre-flight checks ----
 if not exist "%BUN%" ( echo ERROR: BUN not found: %BUN% & exit /b 1 )

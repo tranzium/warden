@@ -33,6 +33,8 @@ bun run start
 
 Warden listens on `127.0.0.1:3004` by default — sign in with `AUTH_USERNAME` (default `admin`) and the password you hashed above.
 
+Installed services' stdout/stderr logs default to `./logs` (`LOGS_DIR` in `.env`); change it if you'd rather keep them elsewhere.
+
 To run Warden itself as a Windows service, see `nssm-install.bat` (edit the paths and secrets at the top before running as Administrator).
 
 ## Authentication
