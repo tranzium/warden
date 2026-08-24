@@ -1,6 +1,8 @@
 {
 	"name": "warden",
 	"version": "0.1.0",
+	"description": "A small web dashboard for managing NSSM-managed Windows services: start, stop, restart, install, and tail logs from a browser.",
+	"license": "MIT",
 	"private": true,
 	"scripts": {
 		"start": "bun run src/server.ts",
