@@ -1,8 +1,12 @@
 // Ad-hoc smoke test: boots the module graph against a temp DB and exercises
 // the session + service-overlay roundtrips. Run via `bun run scripts/smoke.ts`.
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 export {} // dynamic imports below don't mark this as a module on their own
 
-process.env.DB_PATH = './data-test/warden.db'
+process.env.DB_PATH = join(mkdtempSync(join(tmpdir(), 'warden-smoke-')), 'warden.db')
 process.env.COOKIE_SECRET = '0123456789abcdef0123456789abcdef'
 process.env.AUTH_PASSWORD_HASH = await Bun.password.hash('smoke-test-password')
 

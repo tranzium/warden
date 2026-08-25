@@ -1,11 +1,12 @@
 // Verifies the guarded ALTER TABLE picks up old databases created before the
 // `hidden` column existed. Run via `bun run scripts/smoke-migrate.ts`.
 import { Database } from 'bun:sqlite'
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-rmSync('./data-test', { recursive: true, force: true })
-mkdirSync('./data-test', { recursive: true })
-const old = new Database('./data-test/warden.db', { create: true })
+const dbPath = join(mkdtempSync(join(tmpdir(), 'warden-smoke-migrate-')), 'warden.db')
+const old = new Database(dbPath, { create: true })
 old.exec(`CREATE TABLE services (
 	id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, display TEXT,
 	description TEXT, group_name TEXT, managed INTEGER DEFAULT 1,
@@ -14,7 +15,7 @@ old.exec(`CREATE TABLE services (
 old.exec("INSERT INTO services (id, name, group_name) VALUES ('a', 'legacy', 'Core')")
 old.close()
 
-process.env.DB_PATH = './data-test/warden.db'
+process.env.DB_PATH = dbPath
 process.env.COOKIE_SECRET = '0123456789abcdef0123456789abcdef'
 process.env.AUTH_PASSWORD_HASH = await Bun.password.hash('smoke-test-password')
 
