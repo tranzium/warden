@@ -14,7 +14,7 @@ This is the expected shape for an admin panel over a privileged subsystem — th
 - Every route past `/health` and `/static/` requires an authenticated session (`src/router.ts`, `src/auth/middleware.ts`).
 - `HOST` defaults to `127.0.0.1` — Warden is not reachable from the network unless you deliberately widen it or put it behind a reverse proxy.
 - Static file and log-viewer paths are resolved and checked against their base directory before serving (`src/router.ts`, `src/routes/logs.ts`) to block path traversal.
-- Session and PKCE cookies are `HttpOnly`, `SameSite=Lax`, and (when `HOST`/`OAUTH_REDIRECT_URI` indicate TLS) `Secure`.
+- Session and PKCE cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` when `SECURE_COOKIES=true` or `OAUTH_REDIRECT_URI` starts with `https://`. In `AUTH_MODE=local` (no `OAUTH_REDIRECT_URI`), set `SECURE_COOKIES=true` explicitly once you put Warden behind TLS — see `.env.example`.
 - In `AUTH_MODE=local`, passwords are hashed with argon2id via `Bun.password` — never stored or compared in plaintext.
 
 ### Known gaps — mitigate before exposing beyond localhost

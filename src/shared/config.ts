@@ -71,6 +71,6 @@ export const config = Object.freeze({
 
 	nssmPath: process.env.NSSM_PATH ?? 'nssm',
 	wardenServiceName: process.env.WARDEN_SERVICE_NAME ?? 'warden',
-	logsDir: process.env.LOGS_DIR ?? 'D:\\logs',
+	logsDir: process.env.LOGS_DIR ?? './logs',
 	secure: process.env.SECURE_COOKIES === 'true' || oauthRedirectUri.startsWith('https://'),
 })
