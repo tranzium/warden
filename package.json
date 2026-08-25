@@ -1,6 +1,6 @@
 {
 	"name": "warden",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "A small web dashboard for managing NSSM-managed Windows services: start, stop, restart, install, and tail logs from a browser.",
 	"license": "MIT",
 	"private": true,
