@@ -23,6 +23,10 @@ This is the expected shape for an admin panel over a privileged subsystem — th
 - **No login rate limiting or lockout**, in either auth mode. `AUTH_MODE=local` in particular is a single username/password pair with no brute-force protection — don't expose it to the internet without a reverse proxy that adds rate limiting (or switch to `AUTH_MODE=orbit` for a real identity provider in front of it).
 - **`services.install` accepts any local path.** Warden does not sandbox or allowlist installable programs; anyone with that grant can run arbitrary code as SYSTEM by design (see Threat model above). Only grant it to operators you'd trust with admin on the box.
 
+## The agent-restart API (`/v1/services/...`)
+
+A second auth path, separate from the dashboard's session/Orbit auth: static bearer tokens in `AGENT_TOKENS_PATH` (default `./data/agent-tokens.json`, gitignored), each scoped to an allowlist of service names. Compared to the dashboard's `services.*` grants, this is narrower by design — a leaked token can only touch the specific services it was provisioned for, never install/uninstall, and never Taskflow's own rails or Warden itself (hardcoded denylist in `src/auth/agentTokens.ts`, enforced independent of the token file's contents). Treat a leaked token as compromise of whatever services it lists — provision one token per caller so a leak is scoped and auditable via `AGENT_AUDIT_LOG_PATH`.
+
 ## The Orbit consent screen
 
 `src/auth/consent.ts` is only reachable when `AUTH_MODE=orbit` **and** both `OAUTH_CONSENT_KEY` and `ORBIT_API_URL` are set — none of which are set by default. When active, it renders Warden's own login form for a *different* OAuth2 client's authorization request, takes the user's Orbit email and password, exchanges them with `ORBIT_API_URL/auth/login`, and signs the consent decision with the configured private key. This is Warden acting as Orbit's identity UI for third-party OAuth2 clients, not a normal login path — it is off by default and only relevant if you are running Warden as part of an Orbit deployment.

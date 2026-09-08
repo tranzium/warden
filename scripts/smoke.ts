@@ -6,9 +6,12 @@ import { join } from 'node:path'
 
 export {} // dynamic imports below don't mark this as a module on their own
 
-process.env.DB_PATH = join(mkdtempSync(join(tmpdir(), 'warden-smoke-')), 'warden.db')
+const smokeDir = mkdtempSync(join(tmpdir(), 'warden-smoke-'))
+process.env.DB_PATH = join(smokeDir, 'warden.db')
 process.env.COOKIE_SECRET = '0123456789abcdef0123456789abcdef'
 process.env.AUTH_PASSWORD_HASH = await Bun.password.hash('smoke-test-password')
+process.env.AGENT_TOKENS_PATH = join(smokeDir, 'agent-tokens.json')
+process.env.AGENT_AUDIT_LOG_PATH = join(smokeDir, 'agent-audit.log')
 
 await import('../src/router')
 const db = await import('../src/db/client')
@@ -33,6 +36,19 @@ if (!row.hidden || row.group_name !== 'G') throw new Error('upsert insert failed
 const row2 = db.upsertService('demo', { hidden: false })
 if (row2.hidden || row2.group_name !== 'G') throw new Error('upsert update failed')
 db.unregisterService('demo')
+
+// Agent-restart API: token resolution + hardcoded denylist
+await Bun.write(
+	process.env.AGENT_TOKENS_PATH!,
+	JSON.stringify({ tokens: [{ name: 'test-agent', token: 'smoke-token-abc', services: ['demo-svc'] }] }),
+)
+const agentTokens = await import('../src/auth/agentTokens')
+const resolved = agentTokens.resolveAgentToken('smoke-token-abc')
+if (!resolved || resolved.name !== 'test-agent') throw new Error('agent token resolution failed')
+if (agentTokens.resolveAgentToken('wrong-token')) throw new Error('agent token should not resolve for a wrong token')
+if (!agentTokens.isDenylisted('tf-agent')) throw new Error('tf-agent should be denylisted')
+if (!agentTokens.isDenylisted('warden')) throw new Error('warden (self) should be denylisted')
+if (agentTokens.isDenylisted('demo-svc')) throw new Error('demo-svc should not be denylisted')
 
 console.log('smoke ok')
 process.exit(0)
