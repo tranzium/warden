@@ -44,6 +44,29 @@ Warden ships with two auth modes, controlled by `AUTH_MODE`:
 - **`local` (default)** — a single operator, credentials from `.env`, full permissions. No external dependency. This is what the quickstart above uses.
 - **`orbit`** — delegates authentication and per-user, per-permission grants to an [Orbit](https://dash.wrift.ca/docs) tenant via OAuth2/PKCE, for teams that want multiple operators with different access levels. See [docs/orbit-setup.md](docs/orbit-setup.md) for the Warden-side wiring; Orbit's own docs cover account and tenant setup.
 
+## Agent-restart API
+
+`POST /v1/services/:name/restart`, `GET /v1/services`, and `GET /v1/services/:name/status` are a second, minimal API surface for programmatic callers (e.g. an AI agent that needs to restart a service it just reconfigured) — separate from the dashboard's session/Orbit auth above.
+
+- **Auth**: `Authorization: Bearer <token>`, checked against a token file — not a dashboard login or Orbit token.
+- **Allowlist, not open**: each token maps to a fixed list of service names it may act on. A service outside that list (or not NSSM-managed) is refused. Taskflow's own rails (`tf-*`) and Warden itself are never restartable via this API, no matter what a token's config says.
+- **Dry-run by default**: without `?live=1`, `restart` reports what would happen (authorized, exists, current status) but does not touch the service. Add `?live=1` to actually restart it.
+- **Audit log**: every call — including auth failures — appends a JSON line to `AGENT_AUDIT_LOG_PATH` (default `./data/agent-audit.log`): timestamp, token name, action, service, result, HTTP status.
+
+Provision a token:
+
+```sh
+bun run scripts/agent-token.ts add queen ear,ear-worker,herald,whisper,viz,bugle,yt
+```
+
+This prints the token once and writes it (in plaintext — the file is gitignored under `data/`) to `AGENT_TOKENS_PATH` (default `./data/agent-tokens.json`). Give the printed token only to the caller it's for; each caller should get its own token so the audit log attributes actions correctly. `bun run scripts/agent-token.ts list` shows provisioned tokens (without their secrets) and the services each is allowed to touch; `remove <name>` revokes one. Changes take effect immediately — no restart needed, the token file is re-read on every request.
+
+Example call:
+
+```sh
+curl -H "Authorization: Bearer wat_..." -X POST "http://127.0.0.1:3004/v1/services/ear/restart?live=1"
+```
+
 ## Development
 
 ```sh

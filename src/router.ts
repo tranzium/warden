@@ -4,6 +4,7 @@ import { loginHandler, localLoginPostHandler, loginStartHandler, callbackHandler
 import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, restartHandler, installHandler, uninstallHandler, unregisterHandler, updateHandler } from './routes/services'
 import { logsPageHandler, logsDataHandler } from './routes/logs'
 import { settingsPageHandler, settingsSaveHandler } from './routes/settings'
+import { agentAuthMiddleware, agentListHandler, agentStatusHandler, agentRestartHandler } from './routes/agentApi'
 import { html404 } from './views/html'
 import { config } from './shared/config'
 
@@ -26,6 +27,26 @@ export async function router(req: Request): Promise<Response> {
 		const file = Bun.file(filePath)
 		if (await file.exists()) return new Response(file)
 		return new Response('Not found', { status: 404 })
+	}
+
+	// Agent-restart API — bearer-token auth against the allowlist file, independent
+	// of the dashboard's session/Orbit auth below.
+	if (pathname.startsWith('/v1/')) {
+		const agentAuth = await agentAuthMiddleware(req)
+		if (agentAuth instanceof Response) return agentAuth
+		const caller = agentAuth
+
+		if (pathname === '/v1/services' && method === 'GET') return agentListHandler(caller)
+
+		const agentMatch = pathname.match(/^\/v1\/services\/([^/]+)(\/.*)?$/)
+		if (agentMatch) {
+			const name = decodeURIComponent(agentMatch[1]!)
+			const sub = agentMatch[2] ?? ''
+			if (sub === '/status' && method === 'GET') return agentStatusHandler(caller, name)
+			if (sub === '/restart' && method === 'POST') return agentRestartHandler(caller, name, req)
+		}
+
+		return html404()
 	}
 
 	// Auth routes — no auth required

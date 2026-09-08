@@ -73,4 +73,8 @@ export const config = Object.freeze({
 	wardenServiceName: process.env.WARDEN_SERVICE_NAME ?? 'warden',
 	logsDir: process.env.LOGS_DIR ?? './logs',
 	secure: process.env.SECURE_COOKIES === 'true' || oauthRedirectUri.startsWith('https://'),
+
+	// /v1 agent-restart API — separate bearer-token auth from the dashboard's session/Orbit auth
+	agentTokensPath: process.env.AGENT_TOKENS_PATH ?? './data/agent-tokens.json',
+	agentAuditLogPath: process.env.AGENT_AUDIT_LOG_PATH ?? './data/agent-audit.log',
 })
