@@ -79,6 +79,11 @@ globalThis.fetch = (async (_url: RequestInfo | URL, _init?: RequestInit): Promis
 ir = await orbit.introspect('dummy')
 if (ir.failureReason !== 'unreachable') throw new Error('expected unreachable when fetch throws')
 
+mockFetchOnce(500, 'internal error')
+ir = await orbit.introspect('dummy')
+if (ir.failureReason !== 'error') throw new Error('expected error for HTTP 500')
+if (!orbit.describeIntrospectFailure(ir).includes('500')) throw new Error('non-2xx message should include the status code, not collapse to a generic message')
+
 mockFetchOnce(200, JSON.stringify({ authenticated: true, user: { id: '1', email: 'e@x', name: 'n' } }))
 ir = await orbit.introspect('dummy')
 if (!ir.authenticated || ir.failureReason) throw new Error('success path must not be tagged with a failureReason')

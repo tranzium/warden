@@ -1,10 +1,12 @@
 // Read-only preflight for Orbit's introspect endpoint. Run this after a "token was not
 // accepted" / login-broken report to tell apart the three failure modes that
 // callbackHandler used to collapse into one message — see docs/orbit-login-troubleshooting.md:
-//   1. HTTP 401, empty body   -> Warden's ORBIT_API_KEY not accepted, or tenant deactivated
-//   2. HTTP 422               -> orbit-introspect's JWT verification path is unconfigured
-//   3. HTTP 401 with a body, or HTTP 200 -> reachable, key OK, JWT path configured
-//      (the dummy token is deliberately invalid, so being rejected is the healthy outcome)
+//   1. HTTP 401  -> Warden's ORBIT_API_KEY not accepted, or tenant deactivated
+//   2. HTTP 422  -> orbit-introspect's JWT verification path is unconfigured
+//   3. HTTP 200, authenticated:false -> reachable, key OK, JWT path configured
+//      (the dummy token is deliberately invalid, so being rejected is the healthy outcome —
+//      a healthy deployment never returns 401 for this request, since the key is checked
+//      independently of the dummy token's validity)
 //
 // Usage: bun run scripts/orbit-preflight.ts
 import { ALL_PERMISSIONS } from '../src/auth/permissions'
@@ -54,17 +56,12 @@ if (res.status === 422) {
 }
 
 if (res.status === 401) {
-	// A bare 401 with no body means Warden's own key was rejected before the JWT path
-	// ever ran. A 401 with a body means the key was accepted and the (deliberately
-	// invalid) dummy token was correctly rejected by JWT verification — that's healthy.
-	if (bodyText.trim().length === 0) {
-		console.log('FAIL: introspect-rejected-api-key (HTTP 401, empty body)')
-		console.log('  ORBIT_API_KEY was not accepted, or the tenant is deactivated.')
-		process.exit(1)
-	}
-	console.log('PASS: introspect reachable, ORBIT_API_KEY accepted, JWT verification path configured')
-	console.log('  (HTTP 401 on a deliberately invalid dummy token, as expected)')
-	process.exit(0)
+	// A healthy deployment checks Warden's ORBIT_API_KEY independently of the dummy
+	// token's validity, and always returns 200 authenticated:false for an invalid token.
+	// So any 401 — body or no body — means the key itself was rejected.
+	console.log('FAIL: introspect-rejected-api-key (HTTP 401)')
+	console.log('  ORBIT_API_KEY was not accepted, or the tenant is deactivated.')
+	process.exit(1)
 }
 
 if (res.status === 200) {

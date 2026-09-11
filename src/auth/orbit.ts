@@ -90,8 +90,10 @@ export function describeIntrospectFailure(result: IntrospectResult): string {
 			return 'Authentication failed: Orbit introspection is not configured for JWT verification (422). See docs/orbit-login-troubleshooting.md.'
 		case 'token-rejected':
 			return `Authentication failed: token was not accepted${result.denied_reason ? ` (${result.denied_reason})` : ''}.`
+		case 'error':
+			return `Authentication failed: Orbit introspection returned an unexpected error${result.status ? ` (${result.status})` : ''}. See docs/orbit-login-troubleshooting.md.`
 		default:
-			return 'Authentication failed: token was not accepted.'
+			return `Authentication failed: token was not accepted${result.status ? ` (${result.status})` : ''}.`
 	}
 }
 
