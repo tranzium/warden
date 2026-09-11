@@ -36,7 +36,7 @@ grep ORBIT_OAUTH_ISSUER /etc/orbit/orbit-service.env
 grep ORBIT_OAUTH_ISSUER /etc/orbit/orbit-oauth2.env
 ```
 
-Both `ORBIT_OAUTH_ISSUER` (and `JWKS_URL`) must be set and **byte-identical** across both files, including any trailing slash — a mismatch (e.g. `https://orbit.example.com` vs `https://orbit.example.com/`) causes the same 422.
+Both `ORBIT_OAUTH_ISSUER` (and `JWKS_URL`) must be set in both files for the JWT path to be considered configured at all — if either is missing, introspect returns 422 regardless of the token presented.
 
 After editing either file:
 
@@ -44,15 +44,15 @@ After editing either file:
 sudo systemctl restart orbit-introspect orbit-service
 ```
 
-The JWT verifier is built once at process start, so a config edit with no restart has no effect — this exact failure mode (missing/edited-but-not-restarted issuer config) is the one this doc previously omitted.
+The JWT verifier is built once at process start, so a config edit with no restart has no effect.
 
 Local orbit-introspect logs never print `(JWT verification enabled)` while this is broken — that log line's absence is itself diagnostic.
 
 ### 3. `token-rejected` — HTTP 200, `authenticated:false`
 
-introspect ran the JWT path and rejected the token itself. Check the `denied_reason` field, included in the operator-facing message when present. Common causes:
+introspect ran the JWT path (so `ORBIT_OAUTH_ISSUER`/`JWKS_URL` are present) and rejected the token itself. Check the `denied_reason` field, included in the operator-facing message when present. Common causes:
 
-- Issuer byte-mismatch (see above) surfacing as a per-token rejection instead of a blanket 422
+- Issuer byte-mismatch between `orbit-service.env` and `orbit-oauth2.env` — must be **byte-identical**, including any trailing slash (e.g. `https://orbit.example.com` vs `https://orbit.example.com/`); fix on the Orbit box and restart both services as above
 - Stale JWKS cached from before an orbit-oauth2 restart or key rotation — restart orbit-introspect to force a refetch
 - Clock skew making a freshly issued token look expired or not-yet-valid
 
