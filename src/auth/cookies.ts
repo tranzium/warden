@@ -97,8 +97,11 @@ export function clearSessionCookie(): string {
 	return `warden_session=; Max-Age=0; HttpOnly; SameSite=Lax; Path=/${secureSuffix}`
 }
 
+// Max-Age=900 (15 min): 300s was tight enough that time spent on Orbit's login/consent
+// page routinely killed the cookie before the callback, surfacing as "Missing PKCE
+// cookie" on retry — see docs/orbit-login-troubleshooting.md.
 export function pkceCookie(value: string): string {
-	return `warden_pkce=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=300${secureSuffix}`
+	return `warden_pkce=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=900${secureSuffix}`
 }
 
 export function clearPkceCookie(): string {

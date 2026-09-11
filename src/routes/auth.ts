@@ -1,5 +1,5 @@
 import { parseCookies, verifySession, verifyPkce, signSession, signPkce, sessionCookie, clearSessionCookie, pkceCookie, clearPkceCookie } from '../auth/cookies'
-import { buildAuthorizeUrl, exchangeCode, introspect, generatePkce } from '../auth/orbit'
+import { buildAuthorizeUrl, exchangeCode, introspect, generatePkce, describeIntrospectFailure } from '../auth/orbit'
 import { resolveChallenge, authenticateUser, signAndSubmitConsent } from '../auth/consent'
 import { verifyLocalCredentials } from '../auth/local'
 import { allGrants } from '../auth/permissions'
@@ -77,7 +77,7 @@ export async function callbackHandler(req: Request): Promise<Response> {
 	const token = await exchangeCode(code, pkce.verifier)
 	const result = await introspect(token.access_token)
 	if (!result.authenticated || !result.user) {
-		return new Response('Authentication failed: token was not accepted', { status: 400 })
+		return new Response(describeIntrospectFailure(result), { status: 400 })
 	}
 
 	const sid = createSession({
