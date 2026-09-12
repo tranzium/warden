@@ -42,7 +42,7 @@ To run Warden itself as a Windows service, see `nssm-install.bat` (edit the path
 Warden ships with two auth modes, controlled by `AUTH_MODE`:
 
 - **`local` (default)** — a single operator, credentials from `.env`, full permissions. No external dependency. This is what the quickstart above uses.
-- **`orbit`** — delegates authentication and per-user, per-permission grants to an [Orbit](https://dash.wrift.ca/docs) tenant via OAuth2/PKCE, for teams that want multiple operators with different access levels. See [docs/orbit-setup.md](docs/orbit-setup.md) for the Warden-side wiring; Orbit's own docs cover account and tenant setup.
+- **`orbit`** — delegates authentication and per-user, per-permission grants to an [Orbit](https://dash.wrift.ca/docs) tenant via OAuth2/PKCE, for teams that want multiple operators with different access levels. See [docs/orbit-setup.md](docs/orbit-setup.md) for the Warden-side wiring; Orbit's own docs cover account and tenant setup. If login fails after the Orbit redirect (e.g. "token was not accepted"), see [docs/orbit-login-troubleshooting.md](docs/orbit-login-troubleshooting.md) and run `bun run scripts/orbit-preflight.ts`.
 
 ## Agent-restart API
 

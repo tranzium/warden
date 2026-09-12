@@ -50,5 +50,45 @@ if (!agentTokens.isDenylisted('tf-agent')) throw new Error('tf-agent should be d
 if (!agentTokens.isDenylisted('warden')) throw new Error('warden (self) should be denylisted')
 if (agentTokens.isDenylisted('demo-svc')) throw new Error('demo-svc should not be denylisted')
 
+// Orbit introspect failure-mode mapping: 401 / 422 / 200-authenticated:false / unreachable
+// must map to distinct, non-secret-leaking failureReasons and operator messages.
+const orbit = await import('../src/auth/orbit')
+const originalFetch = globalThis.fetch
+function mockFetchOnce(status: number, body: string): void {
+	globalThis.fetch = (async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(body, { status })) as typeof fetch
+}
+
+mockFetchOnce(401, '')
+let ir = await orbit.introspect('dummy')
+if (ir.failureReason !== 'rejected-api-key') throw new Error('expected rejected-api-key for HTTP 401')
+if (!orbit.describeIntrospectFailure(ir).includes('API key')) throw new Error('401 message should mention the API key')
+
+mockFetchOnce(422, 'jwt path not configured')
+ir = await orbit.introspect('dummy')
+if (ir.failureReason !== 'jwt-unconfigured') throw new Error('expected jwt-unconfigured for HTTP 422')
+if (!orbit.describeIntrospectFailure(ir).includes('JWT verification')) throw new Error('422 message should mention JWT verification')
+
+mockFetchOnce(200, JSON.stringify({ authenticated: false, denied_reason: 'issuer_mismatch' }))
+ir = await orbit.introspect('dummy')
+if (ir.failureReason !== 'token-rejected') throw new Error('expected token-rejected for HTTP 200 authenticated:false')
+if (!orbit.describeIntrospectFailure(ir).includes('issuer_mismatch')) throw new Error('200 message should surface denied_reason')
+
+globalThis.fetch = (async (_url: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+	throw new Error('network down')
+}) as typeof fetch
+ir = await orbit.introspect('dummy')
+if (ir.failureReason !== 'unreachable') throw new Error('expected unreachable when fetch throws')
+
+mockFetchOnce(500, 'internal error')
+ir = await orbit.introspect('dummy')
+if (ir.failureReason !== 'error') throw new Error('expected error for HTTP 500')
+if (!orbit.describeIntrospectFailure(ir).includes('500')) throw new Error('non-2xx message should include the status code, not collapse to a generic message')
+
+mockFetchOnce(200, JSON.stringify({ authenticated: true, user: { id: '1', email: 'e@x', name: 'n' } }))
+ir = await orbit.introspect('dummy')
+if (!ir.authenticated || ir.failureReason) throw new Error('success path must not be tagged with a failureReason')
+
+globalThis.fetch = originalFetch
+
 console.log('smoke ok')
 process.exit(0)

@@ -1,11 +1,22 @@
 import { config } from '../shared/config'
 import { ALL_PERMISSIONS } from './permissions'
 
+// Canonical tags for callbackHandler's three collapsed-into-one-message failure modes
+// (see docs/orbit-login-troubleshooting.md). Keep in sync with describeIntrospectFailure below.
+export type IntrospectFailureReason =
+	| 'unreachable' // network error / no response — orbit-introspect down or URL wrong
+	| 'rejected-api-key' // HTTP 401 — Warden's ORBIT_API_KEY not accepted, or tenant deactivated
+	| 'jwt-unconfigured' // HTTP 422 — orbit-introspect's JWT verification path is not configured
+	| 'token-rejected' // HTTP 200, authenticated:false — JWT verification ran and failed
+	| 'error' // any other non-2xx status
+
 export interface IntrospectResult {
 	authenticated: boolean
 	user?: { id: string; email: string; name: string }
 	grants?: Record<string, boolean>
 	denied_reason?: string
+	failureReason?: IntrospectFailureReason
+	status?: number
 }
 
 export interface TokenResult {
@@ -15,25 +26,75 @@ export interface TokenResult {
 	scope: string
 }
 
-export async function introspect(accessToken: string): Promise<IntrospectResult> {
-	const res = await fetch(`${config.orbitIntrospectUrl}/check`, {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${config.orbitApiKey}`,
-			'Content-Type': 'application/json',
-		},
-		body: JSON.stringify({
-			access_token: accessToken,
-			tenant_id: config.orbitTenantId,
-			permissions: ALL_PERMISSIONS,
-		}),
-	})
+// Strips long token-shaped substrings from a response body before it hits a log line.
+// Never log or echo the access token, API key, or cookie values.
+function redactBody(body: string): string {
+	const truncated = body.length > 500 ? `${body.slice(0, 500)}…(truncated)` : body
+	return truncated.replace(/[A-Za-z0-9_-]{20,}/g, '[redacted]')
+}
 
-	if (!res.ok) {
-		return { authenticated: false, denied_reason: 'unauthenticated' }
+function logIntrospectFailure(tag: string, detail: Record<string, unknown>): void {
+	console.error(`[orbit-introspect] ${tag}`, detail)
+}
+
+export async function introspect(accessToken: string): Promise<IntrospectResult> {
+	let res: Response
+	try {
+		res = await fetch(`${config.orbitIntrospectUrl}/check`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${config.orbitApiKey}`,
+				'Content-Type': 'application/json',
+			},
+			body: JSON.stringify({
+				access_token: accessToken,
+				tenant_id: config.orbitTenantId,
+				permissions: ALL_PERMISSIONS,
+			}),
+		})
+	} catch (err) {
+		logIntrospectFailure('introspect-unreachable', { error: err instanceof Error ? err.message : String(err) })
+		return { authenticated: false, failureReason: 'unreachable' }
 	}
 
-	return res.json() as Promise<IntrospectResult>
+	if (!res.ok) {
+		const body = redactBody(await res.text().catch(() => ''))
+		if (res.status === 401) {
+			logIntrospectFailure('introspect-rejected-api-key', { status: res.status, body })
+			return { authenticated: false, failureReason: 'rejected-api-key', status: res.status }
+		}
+		if (res.status === 422) {
+			logIntrospectFailure('introspect-jwt-unconfigured', { status: res.status, body })
+			return { authenticated: false, failureReason: 'jwt-unconfigured', status: res.status }
+		}
+		logIntrospectFailure('introspect-error', { status: res.status, body })
+		return { authenticated: false, failureReason: 'error', status: res.status }
+	}
+
+	const result = (await res.json()) as IntrospectResult
+	if (!result.authenticated) {
+		logIntrospectFailure('introspect-token-rejected', { status: res.status, denied_reason: result.denied_reason })
+		return { ...result, failureReason: 'token-rejected', status: res.status }
+	}
+	return result
+}
+
+// Operator-facing message for callbackHandler — never includes the token, API key, or cookie values.
+export function describeIntrospectFailure(result: IntrospectResult): string {
+	switch (result.failureReason) {
+		case 'unreachable':
+			return 'Authentication failed: could not reach the Orbit introspection service (ORBIT_INTROSPECT_URL). See docs/orbit-login-troubleshooting.md.'
+		case 'rejected-api-key':
+			return "Authentication failed: Warden's Orbit API key was not accepted (401). Check ORBIT_API_KEY and tenant status — see docs/orbit-login-troubleshooting.md."
+		case 'jwt-unconfigured':
+			return 'Authentication failed: Orbit introspection is not configured for JWT verification (422). See docs/orbit-login-troubleshooting.md.'
+		case 'token-rejected':
+			return `Authentication failed: token was not accepted${result.denied_reason ? ` (${result.denied_reason})` : ''}.`
+		case 'error':
+			return `Authentication failed: Orbit introspection returned an unexpected error${result.status ? ` (${result.status})` : ''}. See docs/orbit-login-troubleshooting.md.`
+		default:
+			return `Authentication failed: token was not accepted${result.status ? ` (${result.status})` : ''}.`
+	}
 }
 
 export async function exchangeCode(code: string, codeVerifier: string): Promise<TokenResult> {
