@@ -12,6 +12,7 @@ process.env.COOKIE_SECRET = '0123456789abcdef0123456789abcdef'
 process.env.AUTH_PASSWORD_HASH = await Bun.password.hash('smoke-test-password')
 process.env.AGENT_TOKENS_PATH = join(smokeDir, 'agent-tokens.json')
 process.env.AGENT_AUDIT_LOG_PATH = join(smokeDir, 'agent-audit.log')
+process.env.LOGS_DIR = './logs'
 
 await import('../src/router')
 const db = await import('../src/db/client')
@@ -89,6 +90,68 @@ ir = await orbit.introspect('dummy')
 if (!ir.authenticated || ir.failureReason) throw new Error('success path must not be tagged with a failureReason')
 
 globalThis.fetch = originalFetch
+
+// Uninstall: stop-first ordering, force fallback, refuse-while-live, artifact cleanup
+const un = await import('../src/nssm/uninstall')
+const { resolve } = await import('node:path')
+const fast = { gracefulMs: 20, forceMs: 20, pollMs: 5 }
+function fakeOps(opts: { stopsOnStop?: boolean; stopsOnKill?: boolean; logs?: boolean; removeOk?: boolean }) {
+	const calls: string[] = []
+	let state: 'Running' | 'Stopped' = 'Running'
+	const logRoot = resolve('./logs/svc')
+	const ops: import('../src/nssm/uninstall').UninstallOps = {
+		status: async () => state,
+		stop: async () => {
+			calls.push('stop')
+			if (opts.stopsOnStop) state = 'Stopped'
+			return { ok: true, output: '' }
+		},
+		pid: async () => {
+			calls.push('pid')
+			return 4242
+		},
+		kill: async () => {
+			calls.push('kill')
+			if (opts.stopsOnKill) state = 'Stopped'
+			return true
+		},
+		remove: async () => {
+			calls.push(`remove@${state}`)
+			return opts.removeOk === false ? { ok: false, output: 'nope' } : { ok: true, output: '' }
+		},
+		get: async (_n, p) => (opts.logs === false ? '/elsewhere/' + p + '.log' : `${logRoot}/${p}.log`),
+		removeDir: p => {
+			calls.push('rmdir')
+			void p
+		},
+		sleep: ms => new Promise(r => setTimeout(r, Math.min(ms, 2))),
+	}
+	return { ops, calls }
+}
+
+let f = fakeOps({ stopsOnStop: true })
+let ur = await un.uninstallService('svc', f.ops, fast)
+if (!ur.ok || ur.stopped !== 'graceful') throw new Error('running service should be stopped gracefully')
+if (f.calls.join() !== 'stop,remove@Stopped,rmdir') throw new Error('stop must precede remove, then cleanup: ' + f.calls.join())
+if (!ur.cleaned.length) throw new Error('owned log dir should be reported cleaned')
+
+f = fakeOps({ stopsOnKill: true })
+ur = await un.uninstallService('svc', f.ops, fast)
+if (!ur.ok || ur.stopped !== 'forced') throw new Error('stuck service should be force-killed')
+if (f.calls.join() !== 'stop,pid,kill,remove@Stopped,rmdir') throw new Error('unexpected force sequence: ' + f.calls.join())
+
+f = fakeOps({})
+ur = await un.uninstallService('svc', f.ops, fast)
+if (ur.ok) throw new Error('uninstall must be refused while the process is still live')
+if (f.calls.some(c => c.startsWith('remove') || c === 'rmdir')) throw new Error('no destructive step may run while live: ' + f.calls.join())
+
+f = fakeOps({ stopsOnStop: true, logs: false })
+ur = await un.uninstallService('svc', f.ops, fast)
+if (!ur.ok || ur.cleaned.length || f.calls.includes('rmdir')) throw new Error('log files outside the default dir must not be deleted')
+
+f = fakeOps({ stopsOnStop: true, removeOk: false })
+ur = await un.uninstallService('svc', f.ops, fast)
+if (ur.ok || f.calls.includes('rmdir')) throw new Error('failed remove must not clean artifacts')
 
 console.log('smoke ok')
 process.exit(0)

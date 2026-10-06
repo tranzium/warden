@@ -111,6 +111,29 @@ export async function nssmRemove(name: string): Promise<{ ok: boolean; output: s
 	return { ok: exitCode === 0, output: stdout || stderr }
 }
 
+// Process id of a running service, or null when it has none (stopped / unknown)
+export async function servicePid(name: string): Promise<number | null> {
+	try {
+		const proc = Bun.spawn(['sc', 'queryex', name], { stdout: 'pipe', stderr: 'pipe' })
+		const stdout = await new Response(proc.stdout).text()
+		await proc.exited
+		const m = stdout.match(/^\s*PID\s*:\s*(\d+)/m)
+		const pid = m ? parseInt(m[1]!) : 0
+		return pid > 0 ? pid : null
+	} catch {
+		return null
+	}
+}
+
+export async function killProcessTree(pid: number): Promise<boolean> {
+	try {
+		const proc = Bun.spawn(['taskkill', '/F', '/T', '/PID', String(pid)], { stdout: 'pipe', stderr: 'pipe' })
+		return (await proc.exited) === 0
+	} catch {
+		return false
+	}
+}
+
 export interface WindowsService {
 	name: string
 	display: string

@@ -13,6 +13,7 @@ import {
 	isSelf,
 	selfRestart,
 } from '../nssm/client'
+import { uninstallService } from '../nssm/uninstall'
 import { type AuthContext, hasPermission } from '../auth/middleware'
 import { ok, created, noContent, badRequest, forbidden, notFound, unprocessable, internalError } from '../shared/http'
 import { dashboardPage, type ServiceView } from '../views/dashboard'
@@ -251,12 +252,11 @@ export async function uninstallHandler(ctx: AuthContext, name: string): Promise<
 	const actual = nssmNames.find(n => n.toLowerCase() === name.toLowerCase())
 	if (!actual) return notFound(`'${name}' is not an NSSM service`)
 
-	await nssmStop(actual) // best effort; already-stopped is fine
-	const result = await nssmRemove(actual)
-	if (!result.ok) return badRequest(`Uninstall failed: ${result.output}`)
+	const result = await uninstallService(actual)
+	if (!result.ok) return badRequest(result.error)
 
 	unregisterService(actual)
-	return ok({ action: 'uninstall', service: actual, ok: true })
+	return ok({ action: 'uninstall', service: actual, ok: true, stopped: result.stopped, cleaned: result.cleaned })
 }
 
 // Removes a Missing orphan's metadata row; live services must be uninstalled instead

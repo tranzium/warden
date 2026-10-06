@@ -759,7 +759,8 @@
 
 	function uninstallService(name, label) {
 		var typed = prompt(
-			'This will PERMANENTLY remove the Windows service "' + label + '".\n\n' +
+			'This will PERMANENTLY remove the Windows service "' + label + '".\n' +
+				'If it is running it will be stopped first (force-killed if it will not stop), and its log folder removed.\n\n' +
 			'Type the service name (' + name + ') to confirm:'
 		)
 		if (typed === null) return
