@@ -84,7 +84,9 @@ async function startStop(): Promise<{ started: boolean; detail: string }> {
 		await Bun.sleep(250)
 		state = await N.nssmStatus(SERVICE)
 	}
-	const started = start.ok && state === 'Running'
+	// nssm's own "start" wait can give up and report SERVICE_START_PENDING while the service
+	// goes on to finish starting fine; trust the polled SCM status, not nssm's complaint.
+	const started = state === 'Running'
 	keep(await N.nssmStop(SERVICE))
 	return { started, detail: started ? state : start.output || state }
 }
@@ -156,13 +158,21 @@ try {
 
 	// 5. Log on as a service (read only)
 	const inf = join(tmp, 'rights.inf')
-	await ps('secedit /export /areas USER_RIGHTS /cfg $env:WL_INF | Out-Null', { WL_INF: inf })
+	const exported = await ps('secedit /export /areas USER_RIGHTS /cfg $env:WL_INF', { WL_INF: inf })
 	let rights = ''
+	let readError = ''
 	try {
 		rights = readFileSync(inf, 'utf16le')
-	} catch {}
+	} catch (e) {
+		readError = (e as Error).message
+	}
 	const line = rights.split(/\r?\n/).find(l => l.startsWith('SeServiceLogonRight')) ?? ''
-	check('"Log on as a service" granted by NSSM', !!sid && line.includes(`*${sid}`))
+	// secedit renders each holder by name when the account still resolves, falling back to
+	// "*SID" only once the account is gone (e.g. an orphaned leftover grant) - accept either.
+	const holders = line.slice(line.indexOf('=') + 1).split(',').map(h => h.trim())
+	const rightsOk = !!sid && holders.some(h => h === `*${sid}` || h.toLowerCase() === ACCOUNT.toLowerCase())
+	if (!rightsOk) console.log(`  diag: secedit exit=${exported.code}, read error=${readError || 'none'}, line=${JSON.stringify(line)}`)
+	check('"Log on as a service" granted by NSSM', rightsOk)
 
 	// 6. Back to LocalSystem
 	const back = L.planLogon(await N.nssmGet(SERVICE, 'ObjectName'), { kind: 'system', account: '', password: '', confirm: '' })
@@ -177,7 +187,14 @@ try {
 		check('cleanup: remove service', (await N.nssmRemove(SERVICE)).ok)
 	}
 	if (sid) {
-		const prof = await ps('Get-CimInstance Win32_UserProfile | Where-Object SID -eq $env:WL_SID | Remove-CimInstance', { WL_SID: sid })
+		let prof = { code: 1, out: '' }
+		// WSearch/WinDefend/SysMain commonly hold the hive open past a short window; widened
+		// to 30s total rather than pretending a fixed short wait is always enough.
+		for (let i = 0; i < 60; i++) {
+			prof = await ps('Get-CimInstance Win32_UserProfile | Where-Object SID -eq $env:WL_SID | Remove-CimInstance', { WL_SID: sid })
+			if (prof.code === 0) break
+			await Bun.sleep(500)
+		}
 		check('cleanup: remove user profile (if any)', prof.code === 0, prof.out)
 	}
 	if (createdAccount) {

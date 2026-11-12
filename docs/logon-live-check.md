@@ -25,7 +25,7 @@ Without `--live` it never changes anything. With `--live` it refuses to run unle
 |---|---|
 | Local account `warden-logon-test` | Yes (`Remove-LocalUser`) |
 | NSSM service `warden-logon-test` (`PING.EXE -n 3600 127.0.0.1`, manual start) | Yes (`nssm remove`) |
-| User profile (created when the service starts under the account) | Yes (`Win32_UserProfile`) |
+| User profile (created when the service starts under the account) | Retried for 30s (`Win32_UserProfile`); commonly still fails - see below |
 | "Log on as a service" entry (granted by NSSM) | **No** - reported only. Harmless orphaned SID; remove via secpol.msc > User Rights Assignment if wanted. |
 
 Cleanup runs in `finally`, so it also runs after a failed check.
@@ -48,4 +48,11 @@ One `PASS` / `FAIL` line per check, then:
 logon-live-check: N/N passed
 ```
 
-Exit code 0 when everything passed, 1 otherwise.
+Exit code 0 when everything passed, 1 otherwise. A known, accepted exception: `cleanup:
+remove user profile` routinely FAILs ("being used by another process") because `WSearch`,
+`WinDefend`, or `SysMain` opens a handle into the newly created profile's registry hive
+(indexing/scanning it) and Windows will not unmount it until they let go - sometimes well
+past 30s. Confirmed on 2026-11-12: not a bug in this feature, every other check (the one
+that matters for the Log On path) passed clean. Remove the orphaned profile later via
+`Get-CimInstance Win32_UserProfile | Where-Object SID -eq '<sid>' | Remove-CimInstance`,
+same as the leftover logon-right SID.
