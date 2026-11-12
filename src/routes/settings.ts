@@ -64,14 +64,16 @@ export async function settingsPageHandler(ctx: AuthContext, name: string, req: R
 	const actual = await resolveService(name)
 	if (!actual) return html404()
 
-	const cfg = toConfig(await readRaw(actual))
+	// ObjectName is read on its own, not via PARAMS, so the settings save diff never touches it
+	const [raw, logon] = await Promise.all([readRaw(actual), nssmGet(actual, 'ObjectName')])
+	const cfg = toConfig(raw)
 	const url = new URL(req.url)
 	const flash = {
 		saved: url.searchParams.get('saved') === '1',
 		error: url.searchParams.get('error') ?? undefined,
 	}
 
-	return settingsPage(actual, cfg, isSelf(actual), flash, { userName: ctx.user.email, grants: ctx.grants })
+	return settingsPage(actual, cfg, logon, isSelf(actual), flash, { userName: ctx.user.email, grants: ctx.grants })
 }
 
 export async function settingsSaveHandler(ctx: AuthContext, name: string, req: Request): Promise<Response> {

@@ -1,3 +1,4 @@
+import { isLocalSystem, LOCAL_SYSTEM } from '../nssm/logon'
 import { page, esc, type PageOpts } from './html'
 
 export interface ServiceConfig {
@@ -82,9 +83,65 @@ export function configFieldSections(cfg: ServiceConfig): string {
 		</div>`
 }
 
+// Log On (NSSM ObjectName). Warden itself gets a read-only card: moving it off
+// LocalSystem would break service install/remove.
+export function logonCard(current: string | null, isSelf: boolean, service: string): string {
+	const system = isLocalSystem(current)
+	const shown = system ? LOCAL_SYSTEM : current!
+	const header = `
+			<div class="card-header d-flex justify-content-between align-items-center">
+				<span>Log on</span>
+				<span class="small text-muted">Currently: <code>${esc(shown)}</code></span>
+			</div>`
+
+	if (isSelf) {
+		return `
+		<div class="card mb-3">${header}
+			<div class="card-body">
+				<div class="small text-muted">Warden runs as LocalSystem so it can install and remove services; its Log On cannot be changed here.</div>
+			</div>
+		</div>`
+	}
+
+	return `
+		<div class="card mb-3" id="logon-card" data-lookup="/services/${encodeURIComponent(service)}/logon/lookup">${header}
+			<div class="card-body">
+				<div class="form-check mb-1">
+					<input class="form-check-input" type="radio" name="logonKind" id="logon-system" value="system"${system ? ' checked' : ''}>
+					<label class="form-check-label" for="logon-system">Local System account</label>
+				</div>
+				<div class="form-check mb-3">
+					<input class="form-check-input" type="radio" name="logonKind" id="logon-user" value="user"${system ? '' : ' checked'}>
+					<label class="form-check-label" for="logon-user">This account</label>
+				</div>
+				<div id="logon-user-fields">
+					<div class="mb-3">
+						<label for="logon-account" class="form-label">Account</label>
+						<div class="input-group">
+							<input type="text" class="form-control" id="logon-account" name="logonAccount" value="${system ? '' : esc(shown)}" placeholder=".\\username" autocomplete="off">
+							<button type="button" class="btn btn-outline-secondary" id="logon-check">Check</button>
+						</div>
+						<div class="form-text" id="logon-hint">&nbsp;</div>
+					</div>
+					<div class="mb-3">
+						<label for="logon-password" class="form-label">Password</label>
+						<input type="password" class="form-control" id="logon-password" name="logonPassword" autocomplete="new-password" placeholder="Leave blank to keep current">
+					</div>
+					<div class="mb-0">
+						<label for="logon-confirm" class="form-label">Confirm password</label>
+						<input type="password" class="form-control" id="logon-confirm" name="logonConfirm" autocomplete="new-password">
+						<div class="form-text" id="logon-match">&nbsp;</div>
+					</div>
+					<div class="form-text">Sent once to Windows; Warden never stores or logs it. Required when changing the account.</div>
+				</div>
+			</div>
+		</div>`
+}
+
 export function settingsPage(
 	name: string,
 	cfg: ServiceConfig,
+	logon: string | null,
 	isSelf: boolean,
 	flash: { saved?: boolean; error?: string },
 	opts: PageOpts,
@@ -126,11 +183,12 @@ export function settingsPage(
 			<div class="bg-body-tertiary rounded-3 p-3 p-lg-4">
 				<form method="POST" action="/services/${encodeURIComponent(name)}/settings">
 					${configFieldSections(cfg)}
+					${logonCard(logon, isSelf, name)}
 					${noticeBox}
-					<button type="submit" class="btn btn-primary">Save changes</button>
+					<button type="submit" class="btn btn-primary" id="save">Save changes</button>
 				</form>
 			</div>
 		</div>`
 
-	return page(`Settings — ${name}`, body, opts)
+	return page(`Settings — ${name}`, body, isSelf ? opts : { ...opts, scripts: true, script: '/static/js/settings.js' })
 }

@@ -65,5 +65,19 @@ if (process.platform === 'win32') {
 	eq(await L.lookupAccount(''), null, 'empty')
 }
 
+// Log on card (view)
+const V = await import('../src/views/settings')
+const c1 = V.logonCard('.\\taskflow', false, 'tf remote')
+for (const s of ['name="logonKind"', 'value="system"', 'value="user"', 'name="logonAccount"', 'value=".\\taskflow"', 'name="logonPassword"', 'name="logonConfirm"', 'autocomplete="new-password"', 'id="logon-check"', 'data-lookup="/services/tf%20remote/logon/lookup"'])
+	if (!c1.includes(s)) throw new Error('card missing ' + s)
+if (/name="logon(Password|Confirm)"[^>]*value=/.test(c1)) throw new Error('password inputs must never carry a value')
+if (!/value="user"[^>]*checked/.test(c1)) throw new Error('named account -> This account selected')
+const c2 = V.logonCard(null, false, 'x')
+if (!c2.includes('LocalSystem') || !/value="system"[^>]*checked/.test(c2)) throw new Error('unreadable -> LocalSystem selected')
+const c3 = V.logonCard('LocalSystem', true, 'warden')
+if (c3.includes('<input') || !c3.includes('LocalSystem')) throw new Error('self card must be read-only with no inputs')
+const c4 = V.logonCard('.\\a"b<', false, 'x')
+if (c4.includes('a"b<')) throw new Error('account must be escaped')
+
 console.log('smoke-logon ok')
 process.exit(0)
