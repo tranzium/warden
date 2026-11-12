@@ -53,7 +53,7 @@ Why: two real incidents.
 - Initial state: Local System selected when current `ObjectName` is `LocalSystem`; otherwise "This account" with Account prefilled to current value, password fields empty.
 - Password fields: `type=password`, `autocomplete=new-password`, never prefilled. Placeholder conveys "leave blank to keep current".
 - Match indicator under Confirm: blank when both empty; "Passwords match" / "Passwords do not match" otherwise. Save disabled while they differ.
-- Account hint under Account: on blur, server lookup shows "Resolves to `MACHINE\name`" or "Account not found". If input starts with `./`, hint suggests the backslash form.
+- Account field is a Bootstrap input group: text input + "Check" button. Lookup runs on button click and passively on blur. Hint under the group shows "Resolves to `MACHINE\name`" or "Account not found". If input starts with `./`, the hint suggests the backslash form; the input is never rewritten.
 - Short note: password is sent once to Windows and not stored; required when changing the account.
 - For Warden itself (`isSelf`): card shows current account read-only, with no inputs and a one-line reason (changing it would break install/remove).
 
@@ -71,8 +71,8 @@ Evaluated after the existing settings are validated; Log On is applied as one mo
 | This account | any | entered, confirm differs | error: passwords do not match (server re-checks) |
 
 Before calling NSSM for a named account:
-- Normalize a leading `./` to `.\`.
-- Resolve the account name; if it does not resolve, fail with "Account not found: <name>" and do not call NSSM.
+- Resolve the account name exactly as entered (no normalization; `.\` is Windows-specific account syntax and Warden does not rewrite user input). If it does not resolve, fail with "Account not found: <name>" and do not call NSSM; for a leading `./`, the message adds the backslash suggestion.
+- The lookup is the same server code used by the "Check" button.
 
 NSSM grants "Log on as a service" itself (observed: "The 'Log on as a service' right was granted to account PICKWICKDRIVE\Devan."). Warden does not grant rights.
 
@@ -101,12 +101,12 @@ Add to `SECURITY.md`:
 
 ## Verification
 
-- CI (no NSSM, no admin): typecheck + tests of the pure decision logic (save table, `./` normalization, password/confirm rules, "password never in error/redirect" checks) using production code, no mocks.
+- CI (no NSSM, no admin): typecheck + tests of the pure decision logic (save table, `./` backslash suggestion, password/confirm rules, "password never in error/redirect" checks) using production code, no mocks.
 - Live check (user approved 2026-11-11): a repo script, `scripts/logon-live-check.ts`, run once by the user from an **elevated** prompt (the dev session is not elevated). Not part of `bun run test`. It:
 	1. Creates a throwaway local account and a throwaway NSSM service (a harmless long-running program).
 	2. Drives Warden's real Log On code path (lookup + `nssm set ... ObjectName`) with tricky passwords: spaces, double quotes, trailing backslash, `%`, `^`, `&`.
 	3. Proves each password reached Windows intact by starting the service under the account (a wrong password fails with logon error 1069), then stopping it.
-	4. Checks account resolution: `./name` normalization, unknown account rejected before NSSM is called.
+	4. Checks account resolution: `.\name` and `MACHINE\name` resolve, `./name` is rejected with the backslash suggestion, unknown account rejected before NSSM is called.
 	5. Checks NSSM output / Warden error text never contains the password.
 	6. Confirms "Log on as a service" was granted by NSSM.
 	7. Always cleans up (finally): remove service, delete the account, remove its user profile (created by step 3), and remove the account's leftover "Log on as a service" entry if practical; otherwise report it as harmless (orphaned SID in local policy).
@@ -116,7 +116,7 @@ Add to `SECURITY.md`:
 ## Left to the builder
 
 - How account resolution is done without FFI (e.g. a spawned Windows tool), including how `.\name` maps to the local machine.
-- Shape of the on-blur lookup endpoint (route, response), gated by `services.install`.
+- Shape of the lookup endpoint used by "Check" and blur (route, response), gated by `services.install`.
 - Exact wording of hints, placeholders and errors.
 - Where the pure decision logic lives (table above) and how it is tested; whether tests extend the smoke scripts or add a test file.
 - Whether `ObjectName` joins the existing `PARAMS` read list or is read separately.
@@ -127,10 +127,13 @@ Add to `SECURITY.md`:
 - Reuse `services.install` instead of a new permission.
 - Read-only card for Warden itself.
 - Password rotation allowed (same account + new password re-applies).
-- `./` auto-normalized to `.\`.
-- On-blur account lookup hint (server-side), in addition to the check on save.
 - Only Local System and named accounts offered.
-- No diagnosis of unknown `ChangeServiceConfig` failures: success criterion is "catch bad names early, show NSSM's error verbatim". (`chief` now runs as `.\Devan`, so the failure in incident 2 was transient or input-related, not a blocker.)
 - No audit record for Log On changes, consistent with every other dashboard settings save (only the `/v1` agent API audits today). `SECURITY.md` states that Log On changes are not recorded.
 - No dry-run mode: the settings page is a human form whose saves already apply live; dry-run-by-default stays the rule for the agent API. Testing during the build is what follows the dry-run rule (see Verification).
 - Mockup shown during design: `https://viz.devan.pw/display/v_0c64ed20-878f-43e3-9921-f4410174c939` (option A).
+
+## Decided in review (by the user, 2026-11-12)
+
+- No auto-normalization of `./` (Windows-specific syntax; keep input as entered). Lookup/resolution stays, with a backslash suggestion.
+- Account lookup: input group with a "Check" button, plus passive check on blur; same lookup enforced on save.
+- No diagnosis of unknown NSSM failures (e.g. `ChangeServiceConfig(): The parameter is incorrect.`): success is "catch bad names early, show NSSM's error verbatim". Warden is an NSSM wrapper that leans on NSSM's strengths and adds a better UX.
