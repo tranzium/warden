@@ -290,7 +290,7 @@ Fixed values: account `warden-logon-test`, service `warden-logon-test`, program 
 - Negative cases: `applyLogon` with `./warden-logon-test` -> not ok, output equals `accountNotFound('./warden-logon-test')`, and `ObjectName` unchanged; wrong password -> apply may succeed but start must fail, and output contains no password.
 - Confirm "Log on as a service": `secedit /export /areas USER_RIGHTS /cfg <tmp>.inf` contains the account SID under `SeServiceLogonRight`.
 - Switch back: `applyLogon` with `LOCAL_SYSTEM` -> `ObjectName` is `LocalSystem`.
-- `finally` cleanup, each step independent and reported: stop + `nssm remove <svc> confirm`; remove the user profile (`Get-CimInstance Win32_UserProfile | ? SID -eq <sid> | Remove-CimInstance`); remove the SID from `SeServiceLogonRight` via `secedit` export/edit/`secedit /configure /db <tmp>.sdb /cfg <tmp>.inf /areas USER_RIGHTS`, or report the SID as a harmless leftover if that fails; `Remove-LocalUser`; delete temp files.
+- `finally` cleanup, each step independent and reported: stop + `nssm remove <svc> confirm`; remove the user profile (`Get-CimInstance Win32_UserProfile | ? SID -eq <sid> | Remove-CimInstance`); `Remove-LocalUser`; delete temp files. The leftover `SeServiceLogonRight` entry is **report only** (user decision 2026-11-12: changes go through NSSM; anything else is read/report): print the SID and that it is a harmless orphan removable via secpol.msc. Never run `secedit /configure`.
 - Print `PASS`/`FAIL` per check and a summary; ASCII only; exit 1 on any FAIL.
 
 - [ ] **Step 2: Dry run (non-elevated session):** `bun run scripts/logon-live-check.ts` -> prints plan, exit 0, no account or service created (`Get-LocalUser warden-logon-test` fails, `nssm status warden-logon-test` fails).
