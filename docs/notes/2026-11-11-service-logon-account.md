@@ -1,6 +1,6 @@
 # Service Log On account (nssm ObjectName) - parked notes
 
-Status: **parked** (2026-11-11). Nothing built. Pick up here if the run-as account ever needs to be shown or changed from Warden.
+Status: **superseded** (2026-11-11) by `docs/superpowers/specs/2026-11-11-service-logon-design.md`.
 
 ## Why this came up
 
