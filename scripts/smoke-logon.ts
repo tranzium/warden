@@ -1,0 +1,69 @@
+// Ad-hoc smoke test for the service Log On feature: decision logic, form parsing,
+// messages, secret scrubbing, and (on Windows) real account lookup. No NSSM calls.
+// Run via `bun run scripts/smoke-logon.ts`.
+export {} // dynamic imports below don't mark this as a module on their own
+
+process.env.COOKIE_SECRET = '0123456789abcdef0123456789abcdef'
+process.env.AUTH_PASSWORD_HASH = await Bun.password.hash('smoke-test-password')
+
+const L = await import('../src/nssm/logon')
+
+const user = (account: string, password = '', confirm = password) => ({ kind: 'user' as const, account, password, confirm })
+const sys = { kind: 'system' as const, account: '', password: '', confirm: '' }
+const eq = (a: unknown, b: unknown, msg: string) => {
+	if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg}: ${JSON.stringify(a)}`)
+}
+
+// isLocalSystem
+eq([L.isLocalSystem('LocalSystem'), L.isLocalSystem('localsystem'), L.isLocalSystem(null), L.isLocalSystem(''), L.isLocalSystem('.\\taskflow')], [true, true, true, true, false], 'isLocalSystem')
+
+// save table (spec "Save")
+eq(L.planLogon('LocalSystem', sys), { action: 'none' }, 'system->system')
+eq(L.planLogon(null, sys), { action: 'none' }, 'unreadable->system')
+eq(L.planLogon('.\\taskflow', sys), { action: 'set', account: 'LocalSystem', password: null }, 'user->system')
+eq(L.planLogon('.\\taskflow', user('.\\taskflow')), { action: 'none' }, 'same, blank')
+eq(L.planLogon('.\\taskflow', user(' .\\Taskflow ')), { action: 'none' }, 'same ignoring case/space, blank')
+eq(L.planLogon('.\\taskflow', user('.\\taskflow', 'n3w')), { action: 'set', account: '.\\taskflow', password: 'n3w' }, 'rotation')
+eq(L.planLogon('LocalSystem', user('.\\Devan')), { action: 'error', message: 'A password is required when changing the account' }, 'change, blank')
+eq(L.planLogon('LocalSystem', user('.\\Devan', 'a', 'b')), { action: 'error', message: 'Passwords do not match' }, 'mismatch')
+eq(L.planLogon('.\\Devan', user('.\\Devan', 'a', 'b')), { action: 'error', message: 'Passwords do not match' }, 'mismatch same account')
+eq(L.planLogon('LocalSystem', user('  ', 'a')), { action: 'error', message: 'Account is required' }, 'empty account')
+eq(L.planLogon('LocalSystem', user(' .\\Devan ', 'p w"\\')), { action: 'set', account: '.\\Devan', password: 'p w"\\' }, 'account trimmed, password untouched')
+
+// parseLogonForm: fields logonKind, logonAccount, logonPassword, logonConfirm
+const fd = (o: Record<string, string>) => {
+	const f = new FormData()
+	for (const [k, v] of Object.entries(o)) f.set(k, v)
+	return f
+}
+eq(L.parseLogonForm(fd({ program: 'x' })), null, 'no logon fields -> null')
+eq(L.parseLogonForm(fd({ logonKind: 'system' })), sys, 'system parse')
+eq(L.parseLogonForm(fd({ logonKind: 'user', logonAccount: '.\\a', logonPassword: ' p ', logonConfirm: ' p ' })), user('.\\a', ' p ', ' p '), 'user parse keeps password whitespace')
+eq(L.parseLogonForm(fd({ logonKind: 'bogus' })), null, 'unknown kind -> null')
+
+// messages
+eq(L.backslashSuggestion('./Devan'), '.\\Devan', 'suggest')
+eq(L.backslashSuggestion('.\\Devan'), null, 'no suggest')
+eq(L.accountNotFound('nobody'), 'Account not found: nobody', 'not found')
+eq(L.accountNotFound('./Devan'), 'Account not found: ./Devan - did you mean .\\Devan?', 'not found + hint')
+
+// scrubSecret
+eq(L.scrubSecret('bad pw Error here Error', 'Error'), 'bad pw ******** here ********', 'scrub all')
+eq(L.scrubSecret('text', ''), 'text', 'empty secret')
+eq(L.scrubSecret('text', null), 'text', 'null secret')
+
+// lookupAccount: real PowerShell, Windows only
+if (process.platform === 'win32') {
+	const me = process.env.USERNAME!
+	const host = process.env.COMPUTERNAME!
+	const r = await L.lookupAccount(`.\\${me}`)
+	if (r?.toLowerCase() !== `${host}\\${me}`.toLowerCase()) throw new Error('local account should resolve: ' + r)
+	eq(await L.lookupAccount(`./${me}`), null, 'forward slash rejected')
+	eq(await L.lookupAccount('warden-no-such-user-zz'), null, 'unknown')
+	eq(await L.lookupAccount("x'; exit 0; '"), null, 'quote injection is data')
+	eq(await L.lookupAccount('$(exit 0)'), null, 'subexpression is data')
+	eq(await L.lookupAccount(''), null, 'empty')
+}
+
+console.log('smoke-logon ok')
+process.exit(0)
