@@ -23,6 +23,18 @@ This is the expected shape for an admin panel over a privileged subsystem — th
 - **No login rate limiting or lockout**, in either auth mode. `AUTH_MODE=local` in particular is a single username/password pair with no brute-force protection — don't expose it to the internet without a reverse proxy that adds rate limiting (or switch to `AUTH_MODE=orbit` for a real identity provider in front of it).
 - **`services.install` accepts any local path.** Warden does not sandbox or allowlist installable programs; anyone with that grant can run arbitrary code as SYSTEM by design (see Threat model above). Only grant it to operators you'd trust with admin on the box.
 
+## Service Log On changes
+
+The settings page can change the account a service runs as (NSSM `ObjectName`, services.msc "Log On").
+
+- Gated by `services.install`, the same grant as the rest of the settings page. It adds no capability: that grant already allows running any program as SYSTEM.
+- Refused for Warden itself, in the UI (read-only card) and on the server. Moving Warden off LocalSystem would break service install/remove.
+- The password is passed to `nssm set <service> ObjectName <account> <password>`, so it is on that short-lived process's command line. Because Warden runs as LocalSystem, only administrators and SYSTEM can read it while it runs. It is **persisted** if the host enables process command-line auditing (Security event 4688 with `ProcessCreationIncludeCmdLine_Enabled`) or Sysmon/EDR command-line logging; neither was enabled on the reference host when checked (2026-11-11). Review this before enabling either.
+- Windows stores the password as an LSA secret, the same as services.msc. Warden stores nothing: the password is not written to the DB, logs, error messages or redirect URLs, and is never rendered back into the page. NSSM output shown on failure has the password scrubbed.
+- Log On changes are not recorded in any audit log (consistent with other settings saves; only the `/v1` agent API is audited).
+- The password crosses the wire once in the form post. Keep Warden on localhost, or behind TLS (`SECURE_COOKIES=true`), before using this remotely.
+- The account check (`GET /services/:name/logon/lookup`, also `services.install`) resolves a name to `DOMAIN\name` via PowerShell. The account is passed as an environment variable, never interpolated into the script.
+
 ## The agent-restart API (`/v1/services/...`)
 
 A second auth path, separate from the dashboard's session/Orbit auth: static bearer tokens in `AGENT_TOKENS_PATH` (default `./data/agent-tokens.json`, gitignored), each scoped to an allowlist of service names. Compared to the dashboard's `services.*` grants, this is narrower by design — a leaked token can only touch the specific services it was provisioned for, never install/uninstall, and never Taskflow's own rails or Warden itself (hardcoded denylist in `src/auth/agentTokens.ts`, enforced independent of the token file's contents). Treat a leaked token as compromise of whatever services it lists — provision one token per caller so a leak is scoped and auditable via `AGENT_AUDIT_LOG_PATH`.

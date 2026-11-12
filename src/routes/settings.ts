@@ -1,6 +1,7 @@
 import { type AuthContext, hasPermission } from '../auth/middleware'
 import { nssmGet, nssmSet, nssmList, nssmRestart, isSelf } from '../nssm/client'
-import { redirect, forbidden } from '../shared/http'
+import { accountNotFound, applyLogon, lookupAccount, parseLogonForm, planLogon } from '../nssm/logon'
+import { redirect, forbidden, ok } from '../shared/http'
 import { html403, html404 } from '../views/html'
 import { settingsPage, type ServiceConfig } from '../views/settings'
 
@@ -109,6 +110,13 @@ export async function settingsSaveHandler(ctx: AuthContext, name: string, req: R
 	const rotateBytes = get('rotateBytes')
 	if (rotateBytes && !/^\d+$/.test(rotateBytes)) return fail('Rotate size must be a whole number of bytes')
 
+	// Log On (ObjectName): only when the card posted fields; never for warden itself.
+	// Planned before anything is applied so a Log On error leaves the service untouched.
+	const logonForm = parseLogonForm(form)
+	if (logonForm && isSelf(actual)) return fail('Log On cannot be changed for Warden itself')
+	const logonPlan = logonForm ? planLogon(await nssmGet(actual, 'ObjectName'), logonForm) : null
+	if (logonPlan?.action === 'error') return fail(logonPlan.message)
+
 	const desired: Array<[string, string]> = [
 		['Application', program],
 		['AppParameters', get('args')],
@@ -129,10 +137,25 @@ export async function settingsSaveHandler(ctx: AuthContext, name: string, req: R
 		if (!result.ok) return fail(`Failed to set ${param}: ${result.output || 'unknown error'}`)
 	}
 
+	// The password reaches nssm only via applyLogon, whose output is scrubbed
+	if (logonPlan?.action === 'set') {
+		const result = await applyLogon(actual, logonPlan)
+		if (!result.ok) return fail(`Failed to set Log On: ${result.output || 'unknown error'}`)
+	}
+
 	// Optional immediate restart — never for warden itself (would drop this response)
 	if (form.get('restart') !== null && !isSelf(actual)) {
 		await nssmRestart(actual)
 	}
 
 	return redirect(`${back}?saved=1`)
+}
+
+// Account check for the Log on card's Check button / blur. Read-only, no password involved.
+export async function logonLookupHandler(ctx: AuthContext, req: Request): Promise<Response> {
+	if (!hasPermission(ctx, 'services.install')) return forbidden()
+
+	const account = (new URL(req.url).searchParams.get('account') ?? '').trim()
+	const resolved = await lookupAccount(account)
+	return resolved ? ok({ resolved }) : ok({ resolved: null, message: accountNotFound(account) })
 }

@@ -3,7 +3,7 @@ import { authMiddleware } from './auth/middleware'
 import { loginHandler, localLoginPostHandler, loginStartHandler, callbackHandler, logoutHandler, consentGetHandler, consentPostHandler } from './routes/auth'
 import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, restartHandler, installHandler, uninstallHandler, unregisterHandler, updateHandler } from './routes/services'
 import { logsPageHandler, logsDataHandler } from './routes/logs'
-import { settingsPageHandler, settingsSaveHandler } from './routes/settings'
+import { logonLookupHandler, settingsPageHandler, settingsSaveHandler } from './routes/settings'
 import { agentAuthMiddleware, agentListHandler, agentStatusHandler, agentRestartHandler } from './routes/agentApi'
 import { html404 } from './views/html'
 import { config } from './shared/config'
@@ -90,6 +90,7 @@ export async function router(req: Request): Promise<Response> {
 		if (sub === '/logs/data' && method === 'GET') return logsDataHandler(ctx, name, req)
 		if (sub === '/settings' && method === 'GET') return settingsPageHandler(ctx, name, req)
 		if (sub === '/settings' && method === 'POST') return settingsSaveHandler(ctx, name, req)
+		if (sub === '/logon/lookup' && method === 'GET') return logonLookupHandler(ctx, req)
 	}
 
 	return html404()

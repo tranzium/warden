@@ -3,6 +3,12 @@
 // Run via `bun run scripts/smoke-logon.ts`.
 export {} // dynamic imports below don't mark this as a module on their own
 
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+// Route modules pull in the DB client; keep it off the working tree
+process.env.DB_PATH = join(mkdtempSync(join(tmpdir(), 'warden-smoke-logon-')), 'warden.db')
 process.env.COOKIE_SECRET = '0123456789abcdef0123456789abcdef'
 process.env.AUTH_PASSWORD_HASH = await Bun.password.hash('smoke-test-password')
 
@@ -78,6 +84,19 @@ const c3 = V.logonCard('LocalSystem', true, 'warden')
 if (c3.includes('<input') || !c3.includes('LocalSystem')) throw new Error('self card must be read-only with no inputs')
 const c4 = V.logonCard('.\\a"b<', false, 'x')
 if (c4.includes('a"b<')) throw new Error('account must be escaped')
+
+// Lookup endpoint handler (the card's Check button)
+const R = await import('../src/routes/settings')
+const ctx = (grants: Record<string, boolean>) => ({ accessToken: 't', user: { id: '1', email: 'e@x', name: 'n' }, grants })
+const lookupReq = (account: string) => new Request(`http://x/services/svc/logon/lookup?account=${encodeURIComponent(account)}`)
+const denied = await R.logonLookupHandler(ctx({ 'services.view': true }), lookupReq('.\\x'))
+if (denied.status !== 403) throw new Error('lookup without services.install must be 403, got ' + denied.status)
+const missing = await R.logonLookupHandler(ctx({ 'services.install': true }), lookupReq('./warden-no-such-user-zz'))
+eq(await missing.json(), { resolved: null, message: 'Account not found: ./warden-no-such-user-zz - did you mean .\\warden-no-such-user-zz?' }, 'lookup not found')
+if (process.platform === 'win32') {
+	const found = (await (await R.logonLookupHandler(ctx({ 'services.install': true }), lookupReq(` .\\${process.env.USERNAME} `))).json()) as { resolved: string | null }
+	if (found.resolved?.toLowerCase() !== `${process.env.COMPUTERNAME}\\${process.env.USERNAME}`.toLowerCase()) throw new Error('lookup should resolve: ' + JSON.stringify(found))
+}
 
 console.log('smoke-logon ok')
 process.exit(0)
