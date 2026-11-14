@@ -81,7 +81,8 @@ export function parseArgs(argv: string[]): Args {
 }
 
 // Installs first (in spec order), then a start per service via the agent restart route:
-// NSSM restart is stop-then-start, so it starts a freshly installed (stopped) service.
+// Assumed: NSSM restart is stop-then-start, so it should start a freshly installed (stopped)
+// service. Unverified: confirm on the live run before relying on this.
 export function buildPlan(specs: ServiceSpec[]): Plan {
 	const installs = specs.map(body => ({ label: `install ${body.name}`, method: 'POST' as const, path: INSTALL_PATH, body }))
 	const starts = specs.map(spec => ({
@@ -128,12 +129,26 @@ export async function sendPlan(
 }
 
 function loadSpec(file: string): ServiceSpec {
-	return parseSpec(JSON.parse(readFileSync(file, 'utf8')))
+	const text = readFileSync(file, 'utf8')
+	let raw: unknown
+	try {
+		raw = JSON.parse(text)
+	} catch (e) {
+		throw new Error(`${file} is not valid JSON: ${(e as Error).message}`)
+	}
+	return parseSpec(raw)
 }
 
 async function main(): Promise<number> {
-	const args = parseArgs(process.argv.slice(2))
-	const specs = args.specFiles.length > 0 ? args.specFiles.map(loadSpec) : POE_SPECS
+	let args: Args
+	let specs: ServiceSpec[]
+	try {
+		args = parseArgs(process.argv.slice(2))
+		specs = args.specFiles.length > 0 ? args.specFiles.map(loadSpec) : POE_SPECS
+	} catch (e) {
+		console.error(`onboard-agentic-service: ${(e as Error).message}`)
+		return 1
+	}
 	const plan = buildPlan(specs)
 	const baseUrl = process.env.WARDEN_URL ?? DEFAULT_URL
 

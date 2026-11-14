@@ -20,9 +20,11 @@ const TOKEN_SENTINEL = 'wat_smoke_onboard_sentinel'
 const URL = 'http://warden.test'
 const script = join(import.meta.dir, 'onboard-agentic-service.ts')
 
-async function run(args: string[]): Promise<{ code: number; out: string; err: string }> {
+async function run(args: string[], withToken = true): Promise<{ code: number; out: string; err: string }> {
+	const env: Record<string, string | undefined> = { ...process.env, WARDEN_URL: URL, WARDEN_AGENT_TOKEN: TOKEN_SENTINEL }
+	if (!withToken) delete env.WARDEN_AGENT_TOKEN
 	const proc = Bun.spawn([process.execPath, script, ...args], {
-		env: { ...process.env, WARDEN_URL: URL, WARDEN_AGENT_TOKEN: TOKEN_SENTINEL },
+		env,
 		stdout: 'pipe',
 		stderr: 'pipe',
 	})
@@ -120,6 +122,19 @@ writeFileSync(badPath, JSON.stringify({ name: 'no-program' }))
 const bad = await run(['--spec', badPath])
 ok(bad.code !== 0, 'invalid spec file must exit non-zero')
 ok(bad.err.includes('spec.program is required'), 'invalid spec names the missing field')
+
+const malformedPath = join(dir, 'malformed.json')
+writeFileSync(malformedPath, '{ "name": "broken", ')
+const malformed = await run(['--spec', malformedPath])
+ok(malformed.code === 1, 'malformed JSON spec must exit 1')
+ok(malformed.err.startsWith('onboard-agentic-service: ') && malformed.err.includes('is not valid JSON'), 'malformed JSON gets a clean message')
+ok(!malformed.err.includes('SyntaxError') && !malformed.err.includes('    at '), 'malformed JSON must not dump a stack trace')
+
+// --live refusal before any request: the token is absent, so nothing is sent
+const noToken = await run(['--live'], false)
+ok(noToken.code === 1, '--live without WARDEN_AGENT_TOKEN must exit 1')
+ok(noToken.err.includes('refusing --live: WARDEN_AGENT_TOKEN is not set'), '--live without token names the missing variable')
+ok(!noToken.out.includes('install') && !noToken.out.includes('start'), '--live without token sends nothing')
 
 console.log('smoke-onboard ok')
 process.exit(0)
