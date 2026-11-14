@@ -81,7 +81,7 @@ eq(installs.map(i => i.path), ['/v1/services', '/v1/services'], 'installs share 
 eq(starts.map(s => s.path), ['/v1/services/poe-monitor/restart?live=1', '/v1/services/poe-dash/restart?live=1'], 'starts use restart route with live=1')
 eq(plan.requests.map(r => r.label), ['install poe-monitor', 'install poe-dash', 'start poe-monitor', 'start poe-dash'], 'every install precedes every start')
 eq(installs[0]!.body!.group_name, 'agentic', 'monitor group')
-eq(installs[1]!.body!.env, { POE_DASH_PORT: '3015' }, 'dash env exact')
+ok(installs.every(i => i.body!.env === undefined), 'presets send no env: each service reads its own .env')
 
 // --- dry-run process: default presets ---
 const dry = await run([])
@@ -97,7 +97,8 @@ const monitorAt = dry.out.indexOf('"name":"poe-monitor"')
 const dashAt = dry.out.indexOf('"name":"poe-dash"')
 ok(monitorAt > 0 && dashAt > monitorAt, 'monitor install printed before dash install')
 ok(dry.out.includes('"group_name":"agentic"'), 'group_name agentic in bodies')
-ok(dry.out.includes('"POE_HYGIENE_DIRS":"C:\\\\Users\\\\Devan\\\\Downloads"'), 'POE_HYGIENE_DIRS in monitor env')
+ok(!dry.out.includes('"env"'), 'no env field in any install body')
+ok(dry.out.includes('Environment variables are not sent'), 'dry-run banner explains env comes from .env')
 ok(dry.out.includes(`3. start poe-monitor: POST ${URL}/v1/services/poe-monitor/restart?live=1\n`), 'monitor start is restart live=1')
 ok(dry.out.includes(`4. start poe-dash: POST ${URL}/v1/services/poe-dash/restart?live=1\n`), 'dash start is restart live=1')
 ok(!dry.out.includes('NOT SENT'), 'no start is marked not sent')

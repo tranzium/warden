@@ -5,6 +5,7 @@
 //   bun run scripts/onboard-agentic-service.ts [--spec <file.json>]... [--live]
 // Without --spec, onboards the Poe presets in order: poe-monitor, then poe-dash.
 // Each service is installed, then started via POST /v1/services/:name/restart?live=1.
+// Environment variables are not sent: each service reads its own .env from its working directory.
 
 import { readFileSync } from 'node:fs'
 
@@ -44,10 +45,6 @@ export const POE_MONITOR: ServiceSpec = {
 	args: 'run src/monitor/main.ts',
 	display: 'Poe Monitor',
 	description: 'Poe gen1 - read-only system monitor (collectors, rules, db writer)',
-	env: {
-		POE_HYGIENE_DIRS: 'C:\\Users\\Devan\\Downloads',
-		POE_LAUNCHED_FROM_DIRS: 'C:\\Users\\Devan\\Downloads,C:\\Users\\Devan\\AppData\\Local\\Temp',
-	},
 }
 
 export const POE_DASH: ServiceSpec = {
@@ -56,7 +53,6 @@ export const POE_DASH: ServiceSpec = {
 	args: 'run src/dash/main.ts',
 	display: 'Poe Dashboard',
 	description: "Poe gen1 - localhost status dashboard over the monitor's database",
-	env: { POE_DASH_PORT: '3015' },
 }
 
 export const POE_SPECS: ServiceSpec[] = [POE_MONITOR, POE_DASH]
@@ -142,7 +138,8 @@ async function main(): Promise<number> {
 	const baseUrl = process.env.WARDEN_URL ?? DEFAULT_URL
 
 	if (!args.live) {
-		console.log('onboard-agentic-service: DRY RUN (no requests sent). Pass --live with WARDEN_AGENT_TOKEN set to send the installs:')
+		console.log('onboard-agentic-service: DRY RUN (no requests sent). Pass --live with WARDEN_AGENT_TOKEN set to send the requests:')
+		console.log('Environment variables are not sent; each service reads its own .env from its working directory.')
 		for (const line of describePlan(plan, baseUrl)) console.log(line)
 		return 0
 	}
