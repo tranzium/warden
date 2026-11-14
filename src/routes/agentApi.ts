@@ -26,7 +26,7 @@ export async function agentAuthMiddleware(req: Request): Promise<AgentToken | Re
 	return caller
 }
 
-function isAllowed(caller: AgentToken, name: string): boolean {
+export function isAllowed(caller: AgentToken, name: string): boolean {
 	if (isDenylisted(name)) return false
 	return caller.services.some(s => s.toLowerCase() === name.toLowerCase())
 }

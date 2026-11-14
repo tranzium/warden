@@ -67,6 +67,30 @@ Example call:
 curl -H "Authorization: Bearer wat_..." -X POST "http://127.0.0.1:3004/v1/services/ear/restart?live=1"
 ```
 
+## MCP server
+
+`POST /mcp` exposes the same agent API as MCP tools (JSON-RPC over Streamable HTTP; JSON responses only, stateless, no SSE stream): `list_services`, `get_service_status`, `restart_service`, `configure_service`, `install_service`. It uses the same bearer tokens, allowlists, denylist, `canInstall` gate, hardcoded `agentic` group, and audit log as `/v1` — each tool calls the `/v1` handler code, so there is no separate permission model. `restart_service` is dry-run unless its arguments include `"live": true`.
+
+Claude Code connection (`.mcp.json`), with the token taken from an environment variable — never commit a literal token:
+
+```json
+{
+	"mcpServers": {
+		"warden": {
+			"type": "http",
+			"url": "http://127.0.0.1:3004/mcp",
+			"headers": { "Authorization": "Bearer ${WARDEN_AGENT_TOKEN}" }
+		}
+	}
+}
+```
+
+Any other MCP client holds its own token the same way. Manual check:
+
+```sh
+curl -H "Authorization: Bearer wat_..." -H "Content-Type: application/json" http://127.0.0.1:3004/mcp -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_services","arguments":{}}}'
+```
+
 ## Development
 
 ```sh

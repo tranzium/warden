@@ -43,6 +43,8 @@ A token's install/configure capability (`POST /v1/services`, `PATCH /v1/services
 
 A `canInstall: true` token remains SYSTEM-level remote-code-execution-equivalent for whatever service names it is provisioned for — same risk class as the dashboard's `services.install` (see Threat model above) — just fenced to one deliberately low-stakes group. Only provision `canInstall: true` for service names you would accept running arbitrary code as SYSTEM.
 
+`POST /mcp` (the MCP server, `src/mcp/`) is the same capability over JSON-RPC, not a second permission model: it runs `agentAuthMiddleware` and its tools call the `/v1` handlers in `src/routes/agentApi.ts`, so the allowlist, denylist, `canInstall` gate, hardcoded `agentic` group, dry-run-by-default restart, and audit log are identical. Audit entries do not record which of the two surfaces a call came through. There is no `Origin` check; a browser cannot attach the bearer token on its own, so DNS rebinding gains nothing without a leaked token.
+
 ## The Orbit consent screen
 
 `src/auth/consent.ts` is only reachable when `AUTH_MODE=orbit` **and** both `OAUTH_CONSENT_KEY` and `ORBIT_API_URL` are set — none of which are set by default. When active, it renders Warden's own login form for a *different* OAuth2 client's authorization request, takes the user's Orbit email and password, exchanges them with `ORBIT_API_URL/auth/login`, and signs the consent decision with the configured private key. This is Warden acting as Orbit's identity UI for third-party OAuth2 clients, not a normal login path — it is off by default and only relevant if you are running Warden as part of an Orbit deployment.

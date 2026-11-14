@@ -22,7 +22,7 @@ import pkg from '../../package.json'
 
 // Live truth: nssm list (membership) + one sc query (display + state).
 // DB rows are a metadata overlay; rows without a live service render as Missing.
-async function buildServices(): Promise<ServiceView[]> {
+export async function buildServices(): Promise<ServiceView[]> {
 	const [nssmNames, winServices] = await Promise.all([nssmList(), listWindowsServices()])
 	const winMap = new Map(winServices.map(w => [w.name.toLowerCase(), w]))
 	const rowMap = new Map(listServices().map(r => [r.name.toLowerCase(), r]))

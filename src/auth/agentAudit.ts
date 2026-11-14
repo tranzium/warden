@@ -12,7 +12,7 @@ export type AgentAuditEntry = {
 	status: number
 }
 
-// Append-only JSONL audit trail for every /v1 call — auth failures included.
+// Append-only JSONL audit trail for every /v1 call and /mcp tool call — auth failures included.
 // Best-effort: a logging failure must never block the request it's auditing.
 export function auditLog(entry: AgentAuditEntry): void {
 	const line = JSON.stringify({ ts: new Date().toISOString(), ...entry })
