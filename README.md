@@ -52,19 +52,31 @@ Warden ships with two auth modes, controlled by `AUTH_MODE`:
 - **Allowlist, not open**: each token maps to a fixed list of service names it may act on. A service outside that list (or not NSSM-managed) is refused. Taskflow's own rails (`tf-*`) and Warden itself are never restartable via this API, no matter what a token's config says.
 - **Dry-run by default**: without `?live=1`, `restart` reports what would happen (authorized, exists, current status) but does not touch the service. Add `?live=1` to actually restart it.
 - **Audit log**: every call — including auth failures — appends a JSON line to `AGENT_AUDIT_LOG_PATH` (default `./data/agent-audit.log`): timestamp, surface (`v1` or `mcp`), token name, action, service, result, HTTP status.
+- **Install/configure capability (opt-in)**: `POST /v1/services` and `PATCH /v1/services/:name` let a `canInstall: true` token install a new NSSM service (program, args, directory, start mode, env vars, restart delay, log-rotation size — the same extended install body the dashboard's own install form sends) or update an already-installed one's `display`/`description`. Off by default; a token needs `canInstall: true`, provisioned with the `--can-install` flag below, and `isAllowedToInstall` still requires the target service name on that token's own allowlist and not denylisted. Both routes are hardcoded to the `agentic` group regardless of the token or request body: install always lands in that group, and configure refuses any service not already in it. The configure path cannot set `hidden` or `managed` — those stay dashboard-only (see [SECURITY.md](SECURITY.md)).
 
 Provision a token:
 
 ```sh
 bun run scripts/agent-token.ts add queen ear,ear-worker,herald,whisper,viz,bugle,yt
+bun run scripts/agent-token.ts add onboarder poe-monitor,poe-dash --can-install
 ```
 
-This prints the token once and writes it (in plaintext — the file is gitignored under `data/`) to `AGENT_TOKENS_PATH` (default `./data/agent-tokens.json`). Give the printed token only to the caller it's for; each caller should get its own token so the audit log attributes actions correctly. `bun run scripts/agent-token.ts list` shows provisioned tokens (without their secrets) and the services each is allowed to touch; `remove <name>` revokes one. Changes take effect immediately — no restart needed, the token file is re-read on every request.
+This prints the token once and writes it (in plaintext — the file is gitignored under `data/`) to `AGENT_TOKENS_PATH` (default `./data/agent-tokens.json`). Give the printed token only to the caller it's for; each caller should get its own token so the audit log attributes actions correctly. `bun run scripts/agent-token.ts list` shows provisioned tokens (without their secrets), whether each can install, and the services each is allowed to touch; `remove <name>` revokes one. Changes take effect immediately — no restart needed, the token file is re-read on every request.
 
-Example call:
+Example calls:
 
 ```sh
 curl -H "Authorization: Bearer wat_..." -X POST "http://127.0.0.1:3004/v1/services/ear/restart?live=1"
+curl -H "Authorization: Bearer wat_..." -H "Content-Type: application/json" -X POST "http://127.0.0.1:3004/v1/services" -d '{"name":"poe-monitor","program":"D:\\bin\\bun.exe","args":"run src/monitor/main.ts","directory":"D:\\projects\\poe"}'
+curl -H "Authorization: Bearer wat_..." -H "Content-Type: application/json" -X PATCH "http://127.0.0.1:3004/v1/services/poe-monitor" -d '{"display":"Poe Monitor"}'
+```
+
+`scripts/onboard-agentic-service.ts` drives the install + start sequence above for a set of services in one dry-run-by-default pass (installs via `POST /v1/services`, then starts each via `POST /v1/services/:name/restart?live=1`). Without `--spec`, it onboards the built-in Poe presets (`poe-monitor`, `poe-dash`); pass `--spec <file.json>` (repeatable) for other services. Dry-run prints the planned requests and sends nothing; `--live` with `WARDEN_AGENT_TOKEN` set sends them for real:
+
+```sh
+bun run scripts/onboard-agentic-service.ts                       # dry run, built-in presets
+WARDEN_AGENT_TOKEN=wat_... bun run scripts/onboard-agentic-service.ts --live
+bun run scripts/onboard-agentic-service.ts --spec my-service.json
 ```
 
 ## MCP server
