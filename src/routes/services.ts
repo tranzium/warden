@@ -308,7 +308,14 @@ export async function unregisterHandler(ctx: AuthContext, name: string): Promise
 // opts.requireGroupName, when set, refuses a target whose current group_name does not already
 // match (service outside the required group, or no row yet) and pins group_name so an agent-scoped
 // configure can never move a service out of its group, independent of the request body.
-export async function performUpdate(name: string, req: Request, opts?: { requireGroupName?: string }): Promise<Response> {
+// opts.agentScoped, when set, drops hidden and managed from the request body entirely — silently,
+// the same way requireGroupName silently pins group_name — so the agent-gated path (agentApi.ts's
+// agentConfigureHandler, and the MCP configure_service tool that calls it) can update display,
+// description, and group_name only. It can never hide a service from the dashboard's default view
+// or pulse counts, nor disable the dashboard's own start/stop/restart controls over it. The
+// dashboard's own updateHandler below calls this with no opts and keeps setting both fields exactly
+// as before.
+export async function performUpdate(name: string, req: Request, opts?: { requireGroupName?: string; agentScoped?: boolean }): Promise<Response> {
 	let body: Record<string, unknown>
 	try {
 		body = (await req.json()) as Record<string, unknown>
@@ -336,8 +343,8 @@ export async function performUpdate(name: string, req: Request, opts?: { require
 		group_name: opts?.requireGroupName
 			? opts.requireGroupName
 			: typeof body.group_name === 'string' ? body.group_name : body.group_name === null ? null : undefined,
-		managed: typeof body.managed === 'boolean' ? body.managed : undefined,
-		hidden: typeof body.hidden === 'boolean' ? body.hidden : undefined,
+		managed: opts?.agentScoped ? undefined : typeof body.managed === 'boolean' ? body.managed : undefined,
+		hidden: opts?.agentScoped ? undefined : typeof body.hidden === 'boolean' ? body.hidden : undefined,
 	})
 
 	return ok(row)

@@ -230,5 +230,16 @@ eq([res.isError, res.body.group_name, res.body.display], [false, 'agentic', 'new
 eq([lastAudit().action, lastAudit().result, lastAudit().status], ['configure', 'ok', 200], 'successful configure is audited')
 eq(db.getService('mcp-agentic-svc')?.group_name, 'agentic', 'row group_name stays agentic')
 
+// --- configure_service cannot set hidden/managed, even though inputSchema no longer offers
+// them: the MCP layer does not validate tool arguments against inputSchema, so the actual
+// restriction must hold in performUpdate itself (agentScoped), not just in the schema.
+db.upsertService('mcp-agentic-svc', { group_name: 'agentic', managed: true, hidden: false })
+res = await callTool(INSTALLER, 'configure_service', { name: 'mcp-agentic-svc', display: 'still-new', hidden: true, managed: false })
+eq(res.isError, false, 'configure with hidden/managed in arguments still succeeds (fields silently ignored)')
+const afterMcpHiddenManaged = db.getService('mcp-agentic-svc')
+ok(!afterMcpHiddenManaged?.hidden, 'configure_service cannot set hidden via MCP')
+ok(!!afterMcpHiddenManaged?.managed, 'configure_service cannot set managed via MCP')
+eq(afterMcpHiddenManaged?.display, 'still-new', 'display still applies alongside the ignored hidden/managed')
+
 console.log('smoke-mcp ok')
 process.exit(0)

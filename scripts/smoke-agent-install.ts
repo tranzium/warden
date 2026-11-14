@@ -75,6 +75,19 @@ const afterConfigure = db.getService('agentic-svc')
 if (afterConfigure?.group_name !== 'agentic') throw new Error('requireGroupName must pin group_name despite a differing request body: ' + afterConfigure?.group_name)
 if (afterConfigure?.display !== 'new') throw new Error('fields other than group_name must still apply: ' + JSON.stringify(afterConfigure))
 
+// --- agentConfigureHandler cannot set hidden/managed: silently ignored, not rejected ---
+// The row is currently managed: true, hidden: false (set above); a configure body asking for
+// the opposite must succeed (other fields still apply) but leave both fields untouched.
+if (!afterConfigure?.managed || afterConfigure?.hidden) {
+	throw new Error('test setup assumption broken, expected managed:1 hidden:0 before the hidden/managed test: ' + JSON.stringify(afterConfigure))
+}
+r = await agentApi.agentConfigureHandler(canInstallSvc, 'agentic-svc', configureReq({ display: 'still-new', hidden: true, managed: false }))
+if (r.status !== 200) throw new Error('configure with hidden/managed in the body must still succeed (fields silently ignored), got ' + r.status)
+const afterHiddenManaged = db.getService('agentic-svc')
+if (afterHiddenManaged?.hidden) throw new Error('agent-scoped configure must not set hidden: ' + JSON.stringify(afterHiddenManaged))
+if (!afterHiddenManaged?.managed) throw new Error('agent-scoped configure must not set managed: ' + JSON.stringify(afterHiddenManaged))
+if (afterHiddenManaged?.display !== 'still-new') throw new Error('display must still apply alongside the ignored hidden/managed: ' + JSON.stringify(afterHiddenManaged))
+
 // --- Regression: installHandler/updateHandler (dashboard path, no opts) unchanged ---
 const ctx = (grants: Record<string, boolean>) => ({ accessToken: 't', user: { id: '1', email: 'e@x', name: 'n' }, grants })
 const register = { 'services.register': true }
@@ -108,6 +121,18 @@ const freeUpdate = await services.updateHandler(
 if (freeUpdate.status !== 200) throw new Error('dashboard update must succeed, got ' + freeUpdate.status)
 const movedRow = db.getService('dash-svc')
 if (movedRow?.group_name !== 'moved-group') throw new Error('dashboard update must freely set group_name (no requireGroupName pin): ' + movedRow?.group_name)
+
+// updateHandler: hidden/managed stay settable on the dashboard path — the agentScoped
+// restriction above applies only to the agent-gated configure path, never to this one.
+const hiddenManagedUpdate = await services.updateHandler(
+	ctx(register),
+	'dash-svc',
+	new Request('http://x/services/dash-svc', { method: 'PATCH', body: JSON.stringify({ hidden: true, managed: false }) }),
+)
+if (hiddenManagedUpdate.status !== 200) throw new Error('dashboard update with hidden/managed must succeed, got ' + hiddenManagedUpdate.status)
+const hiddenManagedRow = db.getService('dash-svc')
+if (!hiddenManagedRow?.hidden) throw new Error('dashboard update must still be able to set hidden: ' + JSON.stringify(hiddenManagedRow))
+if (hiddenManagedRow?.managed) throw new Error('dashboard update must still be able to set managed: ' + JSON.stringify(hiddenManagedRow))
 
 console.log('smoke-agent-install ok')
 process.exit(0)

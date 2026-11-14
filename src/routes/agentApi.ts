@@ -121,7 +121,7 @@ export async function agentConfigureHandler(caller: AgentToken, name: string, re
 		return forbidden(`Not authorized to configure service '${name}'`)
 	}
 
-	const response = await performUpdate(name, req, { requireGroupName: AGENTIC_GROUP })
+	const response = await performUpdate(name, req, { requireGroupName: AGENTIC_GROUP, agentScoped: true })
 	auditLog({ token: caller.name, action: 'configure', service: name, group_name: AGENTIC_GROUP, result: response.ok ? 'ok' : 'error', status: response.status })
 	return response
 }

@@ -67,15 +67,13 @@ export const MCP_TOOLS: readonly McpTool[] = [
 	},
 	{
 		name: 'configure_service',
-		description: "Update metadata of a service already in the 'agentic' group. Requires an install-capable token allowlisted for the service; the group cannot be changed.",
+		description: "Update display name or description of a service already in the 'agentic' group. Requires an install-capable token allowlisted for the service; the group cannot be changed. managed and hidden are dashboard-only and are not accepted here.",
 		inputSchema: {
 			type: 'object',
 			properties: {
 				name: nameSchema,
 				display: { type: ['string', 'null'] },
 				description: { type: ['string', 'null'] },
-				managed: { type: 'boolean' },
-				hidden: { type: 'boolean' },
 			},
 			required: ['name'],
 		},
