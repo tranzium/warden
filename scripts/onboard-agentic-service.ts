@@ -114,14 +114,19 @@ export async function sendPlan(
 ): Promise<{ ok: boolean; lines: string[] }> {
 	const lines: string[] = []
 	for (const req of plan.requests) {
-		const res = await send(`${baseUrl}${req.path}`, {
-			method: req.method,
-			headers: {
-				Authorization: `Bearer ${token}`,
-				...(req.body ? { 'Content-Type': 'application/json' } : {}),
-			},
-			body: req.body ? JSON.stringify(req.body) : undefined,
-		})
+		let res: Response
+		try {
+			res = await send(`${baseUrl}${req.path}`, {
+				method: req.method,
+				headers: {
+					Authorization: `Bearer ${token}`,
+					...(req.body ? { 'Content-Type': 'application/json' } : {}),
+				},
+				body: req.body ? JSON.stringify(req.body) : undefined,
+			})
+		} catch (e) {
+			throw new Error(`${req.label}: request to ${baseUrl}${req.path} failed: ${(e as Error).message}`)
+		}
 		lines.push(`${res.status} ${req.label}: ${await res.text()}`)
 		if (!res.ok) return { ok: false, lines }
 	}
@@ -164,7 +169,13 @@ async function main(): Promise<number> {
 		console.error('onboard-agentic-service: refusing --live: WARDEN_AGENT_TOKEN is not set')
 		return 1
 	}
-	const sent = await sendPlan(plan, baseUrl, token)
+	let sent: { ok: boolean; lines: string[] }
+	try {
+		sent = await sendPlan(plan, baseUrl, token)
+	} catch (e) {
+		console.error(`onboard-agentic-service: ${(e as Error).message}`)
+		return 1
+	}
 	for (const line of sent.lines) console.log(line)
 	return sent.ok ? 0 : 1
 }

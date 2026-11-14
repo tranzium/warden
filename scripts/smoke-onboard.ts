@@ -136,5 +136,22 @@ ok(noToken.code === 1, '--live without WARDEN_AGENT_TOKEN must exit 1')
 ok(noToken.err.includes('refusing --live: WARDEN_AGENT_TOKEN is not set'), '--live without token names the missing variable')
 ok(!noToken.out.includes('install') && !noToken.out.includes('start'), '--live without token sends nothing')
 
+// --live against an unreachable target: fetch throws (connection refused), the script must
+// print a clean onboard-agentic-service: <message> line and exit 1, never a raw stack trace.
+const unreachable = await Bun.spawn([process.execPath, script, '--live'], {
+	env: { ...process.env, WARDEN_URL: 'http://127.0.0.1:1', WARDEN_AGENT_TOKEN: TOKEN_SENTINEL },
+	stdout: 'pipe',
+	stderr: 'pipe',
+})
+const [unreachableOut, unreachableErr] = await Promise.all([
+	new Response(unreachable.stdout).text(),
+	new Response(unreachable.stderr).text(),
+])
+const unreachableCode = await unreachable.exited
+ok(unreachableCode === 1, 'unreachable --live target must exit 1')
+ok(unreachableErr.startsWith('onboard-agentic-service: '), 'unreachable --live target gets a clean, prefixed error')
+ok(!unreachableErr.includes('    at ') && !unreachableErr.toLowerCase().includes('errorevent'), 'unreachable --live target must not dump a stack trace')
+ok(!unreachableOut.includes('install') && !unreachableOut.includes('start'), 'unreachable --live target prints no success lines')
+
 console.log('smoke-onboard ok')
 process.exit(0)

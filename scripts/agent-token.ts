@@ -33,7 +33,7 @@ const [, , cmd, ...rest] = process.argv
 if (cmd === 'list') {
 	const file = load()
 	if (file.tokens.length === 0) console.log('(no tokens provisioned)')
-	for (const e of file.tokens) console.log(`${e.name}\t${e.services.join(', ')}`)
+	for (const e of file.tokens) console.log(`${e.name}\tcanInstall: ${e.canInstall === true}\t${e.services.join(', ')}`)
 	process.exit(0)
 }
 
@@ -56,9 +56,12 @@ if (cmd === 'remove') {
 }
 
 if (cmd === 'add') {
-	const name = rest[0]
-	const servicesArg = rest[1]
+	// --can-install is a flag, not a positional argument: scan for it and strip it out
+	// before assigning name/services positionally, so it works before or after services.
 	const canInstall = rest.includes('--can-install')
+	const positional = rest.filter(a => a !== '--can-install')
+	const name = positional[0]
+	const servicesArg = positional[1]
 	if (!name || !servicesArg) {
 		console.error('Usage: bun run scripts/agent-token.ts add <name> <service1,service2,...> [--can-install]')
 		process.exit(1)
