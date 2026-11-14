@@ -160,6 +160,22 @@ function str(v: unknown): string | undefined {
 	return typeof v === 'string' && v.trim() ? v.trim() : undefined
 }
 
+// KEY=VALUE lines for NSSM AppEnvironmentExtra; undefined when the shape is invalid
+export function envLines(v: unknown): string[] | undefined {
+	if (v === undefined || v === null) return []
+	if (typeof v !== 'object' || Array.isArray(v)) return undefined
+	const entries = Object.entries(v)
+	const valid = entries.every(([k, val]) => /^[^=\s]+$/.test(k) && typeof val === 'string')
+	return valid ? entries.map(([k, val]) => `${k}=${val}`) : undefined
+}
+
+// Integer from a JSON number or digit string; fallback when omitted; undefined when invalid
+export function wholeNumber(v: unknown, fallback: number, min: number): number | undefined {
+	if (v === undefined || v === null) return fallback
+	const n = typeof v === 'string' && /^\d+$/.test(v.trim()) ? Number(v) : v
+	return typeof n === 'number' && Number.isSafeInteger(n) && n >= min ? n : undefined
+}
+
 export async function installHandler(ctx: AuthContext, req: Request): Promise<Response> {
 	if (!hasPermission(ctx, 'services.install')) return forbidden()
 
@@ -186,6 +202,13 @@ export async function installHandler(ctx: AuthContext, req: Request): Promise<Re
 	const startMode = START_MODES[start]
 	if (!startMode) return unprocessable(`start must be one of: ${Object.keys(START_MODES).join(', ')}`)
 
+	const env = envLines(body.env)
+	if (!env) return unprocessable('env must be an object of string values with names free of "=" and whitespace')
+	const restartDelayMs = wholeNumber(body.restartDelayMs, 1500, 0)
+	if (restartDelayMs === undefined) return unprocessable('restartDelayMs must be a non-negative integer')
+	const rotateBytes = wholeNumber(body.rotateBytes, 1048576, 1)
+	if (rotateBytes === undefined) return unprocessable('rotateBytes must be a positive integer')
+
 	const existing = await listWindowsServices()
 	if (existing.some(w => w.name.toLowerCase() === name.toLowerCase())) {
 		return badRequest(`A Windows service named '${name}' already exists`)
@@ -205,7 +228,7 @@ export async function installHandler(ctx: AuthContext, req: Request): Promise<Re
 	const install = await nssmInstall(name, program)
 	if (!install.ok) return badRequest(`Install failed: ${install.output}`)
 
-	const settings: Array<[string, string]> = []
+	const settings: Array<[string, string | string[]]> = []
 	const args = str(body.args)
 	if (args) settings.push(['AppParameters', args])
 	const directory = str(body.directory)
@@ -214,19 +237,20 @@ export async function installHandler(ctx: AuthContext, req: Request): Promise<Re
 	if (display) settings.push(['DisplayName', display])
 	const description = str(body.description)
 	if (description) settings.push(['Description', description])
+	if (env.length) settings.push(['AppEnvironmentExtra', env])
 	settings.push(
 		['Start', startMode],
 		['AppStdout', stdout],
 		['AppStderr', stderr],
-		// Fixed policy: throttle-matched restart delay and always-on 1 MB log rotation
-		['AppRestartDelay', '1500'],
+		// Defaults: throttle-matched restart delay and always-on 1 MB log rotation
+		['AppRestartDelay', String(restartDelayMs)],
 		['AppRotateFiles', '1'],
 		['AppRotateOnline', '1'],
-		['AppRotateBytes', '1048576'],
+		['AppRotateBytes', String(rotateBytes)],
 	)
 
 	for (const [param, value] of settings) {
-		const result = await nssmSet(name, param, value)
+		const result = await nssmSet(name, param, ...(Array.isArray(value) ? value : [value]))
 		if (!result.ok) {
 			// Creation is atomic: any failed set rolls the whole install back
 			await nssmRemove(name)
