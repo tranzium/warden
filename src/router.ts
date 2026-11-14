@@ -4,7 +4,7 @@ import { loginHandler, localLoginPostHandler, loginStartHandler, callbackHandler
 import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, restartHandler, installHandler, uninstallHandler, unregisterHandler, updateHandler } from './routes/services'
 import { logsPageHandler, logsDataHandler } from './routes/logs'
 import { logonLookupHandler, settingsPageHandler, settingsSaveHandler } from './routes/settings'
-import { agentAuthMiddleware, agentListHandler, agentStatusHandler, agentRestartHandler } from './routes/agentApi'
+import { agentAuthMiddleware, agentListHandler, agentStatusHandler, agentRestartHandler, agentInstallHandler, agentConfigureHandler } from './routes/agentApi'
 import { html404 } from './views/html'
 import { config } from './shared/config'
 
@@ -37,11 +37,13 @@ export async function router(req: Request): Promise<Response> {
 		const caller = agentAuth
 
 		if (pathname === '/v1/services' && method === 'GET') return agentListHandler(caller)
+		if (pathname === '/v1/services' && method === 'POST') return agentInstallHandler(caller, req)
 
 		const agentMatch = pathname.match(/^\/v1\/services\/([^/]+)(\/.*)?$/)
 		if (agentMatch) {
 			const name = decodeURIComponent(agentMatch[1]!)
 			const sub = agentMatch[2] ?? ''
+			if (sub === '' && method === 'PATCH') return agentConfigureHandler(caller, name, req)
 			if (sub === '/status' && method === 'GET') return agentStatusHandler(caller, name)
 			if (sub === '/restart' && method === 'POST') return agentRestartHandler(caller, name, req)
 		}

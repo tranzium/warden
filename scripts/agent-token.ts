@@ -1,6 +1,6 @@
 // Provisions bearer tokens for the /v1 agent-restart API (src/routes/agentApi.ts).
 // Usage:
-//   bun run scripts/agent-token.ts add <name> <service1,service2,...>
+//   bun run scripts/agent-token.ts add <name> <service1,service2,...> [--can-install]
 //   bun run scripts/agent-token.ts list
 //   bun run scripts/agent-token.ts remove <name>
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -10,7 +10,7 @@ import { isDenylisted } from '../src/auth/agentTokens'
 
 const path = process.env.AGENT_TOKENS_PATH ?? './data/agent-tokens.json'
 
-type Entry = { name: string; token: string; services: string[] }
+type Entry = { name: string; token: string; services: string[]; canInstall?: boolean }
 type TokenFile = { tokens: Entry[] }
 
 function load(): TokenFile {
@@ -58,8 +58,9 @@ if (cmd === 'remove') {
 if (cmd === 'add') {
 	const name = rest[0]
 	const servicesArg = rest[1]
+	const canInstall = rest.includes('--can-install')
 	if (!name || !servicesArg) {
-		console.error('Usage: bun run scripts/agent-token.ts add <name> <service1,service2,...>')
+		console.error('Usage: bun run scripts/agent-token.ts add <name> <service1,service2,...> [--can-install]')
 		process.exit(1)
 	}
 
@@ -81,11 +82,14 @@ if (cmd === 'add') {
 	}
 
 	const token = `wat_${randomBytes(24).toString('hex')}`
-	file.tokens.push({ name, token, services })
+	const entry: Entry = { name, token, services }
+	if (canInstall) entry.canInstall = true
+	file.tokens.push(entry)
 	save(file)
 
 	console.log(`Token for '${name}': ${token}`)
 	console.log(`Allowed services: ${services.join(', ')}`)
+	console.log(`Can install: ${canInstall}`)
 	console.log(`Written to ${path}`)
 	process.exit(0)
 }

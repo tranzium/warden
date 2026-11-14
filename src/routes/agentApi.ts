@@ -1,7 +1,12 @@
-import { resolveAgentToken, isDenylisted, type AgentToken } from '../auth/agentTokens'
+import { resolveAgentToken, isDenylisted, isAllowedToInstall, type AgentToken } from '../auth/agentTokens'
 import { auditLog } from '../auth/agentAudit'
 import { nssmList, nssmStatus, nssmRestart } from '../nssm/client'
 import { ok, forbidden, notFound, unauthorized } from '../shared/http'
+import { performInstall, performUpdate } from './services'
+
+// Install/configure via this API are fenced to this one hardcoded group, regardless of
+// what a token's config or the request body ask for — never trusted from either.
+const AGENTIC_GROUP = 'agentic'
 
 const SERVICE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
@@ -87,4 +92,36 @@ export async function agentRestartHandler(caller: AgentToken, name: string, req:
 	auditLog({ token: caller.name, action: 'restart', service: name, live, result: result.ok ? 'ok' : 'error', status: result.ok ? 200 : 500 })
 	if (!result.ok) return Response.json({ error: 'Restart failed', output: result.output }, { status: 500 })
 	return ok({ action: 'restart', service: name, live: true, ok: true, output: result.output })
+}
+
+// name comes from the request body (installs have no route param yet); cloned so
+// performInstall can still read the body itself for the full install payload.
+export async function agentInstallHandler(caller: AgentToken, req: Request): Promise<Response> {
+	let body: Record<string, unknown>
+	try {
+		body = (await req.clone().json()) as Record<string, unknown>
+	} catch {
+		body = {}
+	}
+	const name = typeof body.name === 'string' ? body.name.trim() : ''
+
+	if (!SERVICE_NAME_RE.test(name) || !isAllowedToInstall(caller, name)) {
+		auditLog({ token: caller.name, action: 'install', service: name || null, group_name: AGENTIC_GROUP, result: 'forbidden', status: 403 })
+		return forbidden(`Not authorized to install service '${name}'`)
+	}
+
+	const response = await performInstall(req, { forcedGroupName: AGENTIC_GROUP })
+	auditLog({ token: caller.name, action: 'install', service: name, group_name: AGENTIC_GROUP, result: response.ok ? 'ok' : 'error', status: response.status })
+	return response
+}
+
+export async function agentConfigureHandler(caller: AgentToken, name: string, req: Request): Promise<Response> {
+	if (!SERVICE_NAME_RE.test(name) || !isAllowedToInstall(caller, name)) {
+		auditLog({ token: caller.name, action: 'configure', service: name, group_name: AGENTIC_GROUP, result: 'forbidden', status: 403 })
+		return forbidden(`Not authorized to configure service '${name}'`)
+	}
+
+	const response = await performUpdate(name, req, { requireGroupName: AGENTIC_GROUP })
+	auditLog({ token: caller.name, action: 'configure', service: name, group_name: AGENTIC_GROUP, result: response.ok ? 'ok' : 'error', status: response.status })
+	return response
 }

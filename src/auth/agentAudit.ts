@@ -4,9 +4,10 @@ import { config } from '../shared/config'
 
 export type AgentAuditEntry = {
 	token: string
-	action: 'auth' | 'list' | 'status' | 'restart'
+	action: 'auth' | 'list' | 'status' | 'restart' | 'install' | 'configure'
 	service: string | null
 	live?: boolean
+	group_name?: string
 	result: string
 	status: number
 }

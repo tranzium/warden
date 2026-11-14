@@ -176,9 +176,10 @@ export function wholeNumber(v: unknown, fallback: number, min: number): number |
 	return typeof n === 'number' && Number.isSafeInteger(n) && n >= min ? n : undefined
 }
 
-export async function installHandler(ctx: AuthContext, req: Request): Promise<Response> {
-	if (!hasPermission(ctx, 'services.install')) return forbidden()
-
+// Shared core for the dashboard's POST /services and the agent API's POST /v1/services.
+// opts.forcedGroupName, when set, overrides any requested group_name — the caller decides
+// the group, not the request body, so an agent-scoped install can never escape its group.
+export async function performInstall(req: Request, opts?: { forcedGroupName?: string }): Promise<Response> {
 	let body: Record<string, unknown>
 	try {
 		body = (await req.json()) as Record<string, unknown>
@@ -260,12 +261,17 @@ export async function installHandler(ctx: AuthContext, req: Request): Promise<Re
 
 	const row = upsertService(name, {
 		description: description ?? null,
-		group_name: str(body.group_name) ?? null,
+		group_name: opts?.forcedGroupName ?? (str(body.group_name) ?? null),
 		managed: true,
 		hidden: false,
 	})
 
 	return created({ service: name, installed: true, row })
+}
+
+export async function installHandler(ctx: AuthContext, req: Request): Promise<Response> {
+	if (!hasPermission(ctx, 'services.install')) return forbidden()
+	return performInstall(req)
 }
 
 export async function uninstallHandler(ctx: AuthContext, name: string): Promise<Response> {
@@ -298,9 +304,11 @@ export async function unregisterHandler(ctx: AuthContext, name: string): Promise
 	return noContent()
 }
 
-export async function updateHandler(ctx: AuthContext, name: string, req: Request): Promise<Response> {
-	if (!hasPermission(ctx, 'services.register')) return forbidden()
-
+// Shared core for the dashboard's PATCH /services/:name and the agent API's PATCH /v1/services/:name.
+// opts.requireGroupName, when set, refuses a target whose current group_name does not already
+// match (service outside the required group, or no row yet) and pins group_name so an agent-scoped
+// configure can never move a service out of its group, independent of the request body.
+export async function performUpdate(name: string, req: Request, opts?: { requireGroupName?: string }): Promise<Response> {
 	let body: Record<string, unknown>
 	try {
 		body = (await req.json()) as Record<string, unknown>
@@ -310,20 +318,32 @@ export async function updateHandler(ctx: AuthContext, name: string, req: Request
 
 	// Metadata is an overlay: editing a service without a row creates one,
 	// but only for services that actually exist (or already have a row)
-	if (!getService(name)) {
+	const existing = getService(name)
+	if (!existing) {
 		const nssmNames = await nssmList()
 		if (!nssmNames.some(n => n.toLowerCase() === name.toLowerCase())) {
 			return notFound(`Service '${name}' not found`)
 		}
 	}
 
+	if (opts?.requireGroupName && (existing?.group_name ?? null) !== opts.requireGroupName) {
+		return forbidden(`Service '${name}' is not in the '${opts.requireGroupName}' group`)
+	}
+
 	const row = upsertService(name, {
 		display: typeof body.display === 'string' ? body.display : body.display === null ? null : undefined,
 		description: typeof body.description === 'string' ? body.description : body.description === null ? null : undefined,
-		group_name: typeof body.group_name === 'string' ? body.group_name : body.group_name === null ? null : undefined,
+		group_name: opts?.requireGroupName
+			? opts.requireGroupName
+			: typeof body.group_name === 'string' ? body.group_name : body.group_name === null ? null : undefined,
 		managed: typeof body.managed === 'boolean' ? body.managed : undefined,
 		hidden: typeof body.hidden === 'boolean' ? body.hidden : undefined,
 	})
 
 	return ok(row)
+}
+
+export async function updateHandler(ctx: AuthContext, name: string, req: Request): Promise<Response> {
+	if (!hasPermission(ctx, 'services.register')) return forbidden()
+	return performUpdate(name, req)
 }
