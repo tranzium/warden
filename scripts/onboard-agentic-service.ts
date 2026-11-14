@@ -1,10 +1,10 @@
 // Onboards agentic services into Warden through the bearer-token agent API (POST /v1/services).
 // Dry-run by default: prints the requests it would send and makes no network calls.
-// Pass --live with WARDEN_AGENT_TOKEN set to send the installs (WARDEN_URL defaults to DEFAULT_URL).
+// Pass --live with WARDEN_AGENT_TOKEN set to send the requests (WARDEN_URL defaults to DEFAULT_URL).
 // Usage:
 //   bun run scripts/onboard-agentic-service.ts [--spec <file.json>]... [--live]
 // Without --spec, onboards the Poe presets in order: poe-monitor, then poe-dash.
-// Starting is not exposed to agent tokens yet: start calls are listed, never sent.
+// Each service is installed, then started via POST /v1/services/:name/restart?live=1.
 
 import { readFileSync } from 'node:fs'
 
@@ -22,8 +22,8 @@ export type ServiceSpec = {
 	rotateBytes?: number
 }
 
-export type PlannedInstall = { method: 'POST'; path: string; body: ServiceSpec }
-export type Plan = { installs: PlannedInstall[]; starts: string[] }
+export type PlannedRequest = { label: string; method: 'POST'; path: string; body?: ServiceSpec }
+export type Plan = { requests: PlannedRequest[] }
 export type Args = { live: boolean; specFiles: string[] }
 
 export const DEFAULT_URL = 'http://localhost:3004'
@@ -84,42 +84,48 @@ export function parseArgs(argv: string[]): Args {
 	return { live, specFiles }
 }
 
+// Installs first (in spec order), then a start per service via the agent restart route:
+// NSSM restart is stop-then-start, so it starts a freshly installed (stopped) service.
 export function buildPlan(specs: ServiceSpec[]): Plan {
-	return {
-		installs: specs.map(body => ({ method: 'POST', path: INSTALL_PATH, body })),
-		starts: specs.map(spec => spec.name),
-	}
+	const installs = specs.map(body => ({ label: `install ${body.name}`, method: 'POST' as const, path: INSTALL_PATH, body }))
+	const starts = specs.map(spec => ({
+		label: `start ${spec.name}`,
+		method: 'POST' as const,
+		path: `/v1/services/${encodeURIComponent(spec.name)}/restart?live=1`,
+	}))
+	return { requests: [...installs, ...starts] }
 }
 
 export function describePlan(plan: Plan, baseUrl: string): string[] {
-	const installs = plan.installs.flatMap((req, i) => [
-		`${i + 1}. ${req.method} ${baseUrl}${req.path}`,
-		'   Authorization: Bearer <WARDEN_AGENT_TOKEN>',
-		'   Content-Type: application/json',
-		`   body: ${JSON.stringify(req.body)}`,
-	])
-	const offset = plan.installs.length
-	const starts = plan.starts.map((name, i) =>
-		`${offset + i + 1}. start ${name}: POST ${baseUrl}/services/${encodeURIComponent(name)}/start (dashboard session only, no agent-api route) - NOT SENT`,
-	)
-	return [...installs, ...starts]
+	return plan.requests.flatMap((req, i) => {
+		const head = `${i + 1}. ${req.label}: ${req.method} ${baseUrl}${req.path}`
+		if (!req.body) return [head, '   Authorization: Bearer <WARDEN_AGENT_TOKEN>']
+		return [
+			head,
+			'   Authorization: Bearer <WARDEN_AGENT_TOKEN>',
+			'   Content-Type: application/json',
+			`   body: ${JSON.stringify(req.body)}`,
+		]
+	})
 }
 
-export async function sendInstalls(
+export async function sendPlan(
 	plan: Plan,
 	baseUrl: string,
 	token: string,
 	send: typeof fetch = fetch,
 ): Promise<{ ok: boolean; lines: string[] }> {
 	const lines: string[] = []
-	for (const req of plan.installs) {
+	for (const req of plan.requests) {
 		const res = await send(`${baseUrl}${req.path}`, {
 			method: req.method,
-			headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-			body: JSON.stringify(req.body),
+			headers: {
+				Authorization: `Bearer ${token}`,
+				...(req.body ? { 'Content-Type': 'application/json' } : {}),
+			},
+			body: req.body ? JSON.stringify(req.body) : undefined,
 		})
-		const text = await res.text()
-		lines.push(`${res.status} POST ${req.body.name}: ${text}`)
+		lines.push(`${res.status} ${req.label}: ${await res.text()}`)
 		if (!res.ok) return { ok: false, lines }
 	}
 	return { ok: true, lines }
@@ -146,9 +152,8 @@ async function main(): Promise<number> {
 		console.error('onboard-agentic-service: refusing --live: WARDEN_AGENT_TOKEN is not set')
 		return 1
 	}
-	const sent = await sendInstalls(plan, baseUrl, token)
+	const sent = await sendPlan(plan, baseUrl, token)
 	for (const line of sent.lines) console.log(line)
-	for (const line of describePlan({ installs: [], starts: plan.starts }, baseUrl)) console.log(line)
 	return sent.ok ? 0 : 1
 }
 
