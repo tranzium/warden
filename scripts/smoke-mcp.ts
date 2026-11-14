@@ -1,7 +1,8 @@
 // Ad-hoc smoke test for the /mcp JSON-RPC surface, driven through the production router:
 // envelope (initialize, ping, notifications, tools/list, tools/call, malformed input), bearer
 // auth identical to /v1, per-token scoping, restart_service dry-run by default, the hardcoded
-// agentic-group fence on configure/install (not bypassable via tool arguments), and audit lines.
+// agentic-group fence on configure/install (not bypassable via tool arguments), and audit lines
+// (surface tag mcp vs v1, envelope-level entries for initialize, tools/list and rejections).
 // NSSM is only ever read (list/status); no install and no live restart is performed.
 // Run via `bun run scripts/smoke-mcp.ts`.
 export {} // dynamic imports below do not mark this as a module on their own
@@ -77,6 +78,7 @@ for (const token of [null, 'wat_not_a_real_token']) {
 	eq([mcp.status, await mcp.json()], [v1.status, await v1.json()], `/mcp and /v1 auth rejection must match (${token ? 'invalid' : 'missing'})`)
 }
 eq(auditLines().map(l => l.result), ['missing_token', 'missing_token', 'invalid_token', 'invalid_token'], 'auth failures are audited for /mcp and /v1 alike')
+eq(auditLines().map(l => l.surface), ['mcp', 'v1', 'mcp', 'v1'], 'auth failures are tagged with the surface they arrived through')
 
 // --- Transport: POST only ---
 eq((await router(new Request('http://x/mcp'))).status, 405, 'GET /mcp is 405 (no SSE stream)')
@@ -90,31 +92,46 @@ eq(negotiateProtocolVersion(undefined), SUPPORTED_PROTOCOL_VERSIONS[0], 'missing
 const init = await rpc(READER, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'smoke', version: '1' } })
 eq(init.jsonrpc, '2.0', 'initialize jsonrpc')
 eq(init.result, { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'warden', version: pkg.version } }, 'initialize result')
+eq([lastAudit().surface, lastAudit().token, lastAudit().action, lastAudit().result], ['mcp', 'mcp-reader', 'initialize', 'ok'], 'initialize is audited')
+
+const linesBeforeQuiet = auditLines().length
 eq((await rpc(READER, 'ping')).result, {}, 'ping returns an empty result')
 
 const notified = await post(READER, JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }))
 eq([notified.status, await notified.text()], [202, ''], 'notification is accepted with 202 and no body')
+eq(auditLines().length, linesBeforeQuiet, 'ping and notifications are not audited')
 
 // --- tools/list: exactly the five tools, nothing more ---
 const listed = await rpc(READER, 'tools/list')
 const tools = listed.result.tools as Array<{ name: string; description: string; inputSchema: { type: string } }>
 eq(tools.map(t => t.name).sort(), ['configure_service', 'get_service_status', 'install_service', 'list_services', 'restart_service'], 'tool names')
 ok(tools.every(t => t.description && t.inputSchema.type === 'object'), 'every tool has a description and an object inputSchema')
+eq([lastAudit().surface, lastAudit().token, lastAudit().action, lastAudit().result], ['mcp', 'mcp-reader', 'tools_list', 'ok'], 'tools/list is audited')
 
-// --- Malformed envelopes and params ---
+// --- Malformed envelopes and params: refused and audited as rpc_error ---
 const errorOf = async (body: string) => {
 	const r = await post(READER, body)
 	return [r.status, ((await r.json()) as { error: { code: number } }).error.code]
 }
-eq(await errorOf('not json'), [400, RPC_ERROR.parse], 'invalid JSON is a parse error')
-eq(await errorOf('[{"jsonrpc":"2.0","id":1,"method":"ping"}]'), [400, RPC_ERROR.invalidRequest], 'batches are refused')
-eq(await errorOf('{"jsonrpc":"1.0","id":1,"method":"ping"}'), [400, RPC_ERROR.invalidRequest], 'wrong jsonrpc version is refused')
-eq(await errorOf('{"jsonrpc":"2.0","id":{},"method":"ping"}'), [400, RPC_ERROR.invalidRequest], 'object id is refused')
-eq((await rpc(READER, 'resources/list')).error.code, RPC_ERROR.methodNotFound, 'unknown method')
-eq((await rpc(READER, 'tools/call')).error.code, RPC_ERROR.invalidParams, 'tools/call without params')
-eq((await rpc(READER, 'tools/call', { arguments: {} })).error.code, RPC_ERROR.invalidParams, 'tools/call without a tool name')
-eq((await rpc(READER, 'tools/call', { name: 'uninstall_service', arguments: {} })).error.code, RPC_ERROR.invalidParams, 'unknown tool (no uninstall capability)')
-eq((await rpc(READER, 'tools/call', { name: 'get_service_status', arguments: ['mcp-svc'] })).error.code, RPC_ERROR.invalidParams, 'array arguments')
+const rejectedAudit = () => [lastAudit().surface, lastAudit().token, lastAudit().action, lastAudit().result, lastAudit().status, lastAudit().detail ?? null]
+eq(await errorOf('not json'), [400, RPC_ERROR.parse_error], 'invalid JSON is a parse error')
+eq(rejectedAudit(), ['mcp', 'mcp-reader', 'rpc_error', 'parse_error', 400, null], 'parse error is audited')
+eq(await errorOf('[{"jsonrpc":"2.0","id":1,"method":"ping"}]'), [400, RPC_ERROR.invalid_request], 'batches are refused')
+eq(rejectedAudit(), ['mcp', 'mcp-reader', 'rpc_error', 'invalid_request', 400, null], 'refused batch is audited')
+eq(await errorOf('{"jsonrpc":"1.0","id":1,"method":"ping"}'), [400, RPC_ERROR.invalid_request], 'wrong jsonrpc version is refused')
+eq(await errorOf('{"jsonrpc":"2.0","id":{},"method":"ping"}'), [400, RPC_ERROR.invalid_request], 'object id is refused')
+eq(rejectedAudit(), ['mcp', 'mcp-reader', 'rpc_error', 'invalid_request', 400, null], 'invalid request is audited')
+eq((await rpc(READER, 'resources/list')).error.code, RPC_ERROR.method_not_found, 'unknown method')
+eq(rejectedAudit(), ['mcp', 'mcp-reader', 'rpc_error', 'method_not_found', 200, 'resources/list'], 'unknown method is audited with its name')
+eq((await rpc(READER, 'tools/call')).error.code, RPC_ERROR.invalid_params, 'tools/call without params')
+eq(rejectedAudit(), ['mcp', 'mcp-reader', 'rpc_error', 'invalid_params', 200, 'tools/call'], 'tools/call without params is audited')
+eq((await rpc(READER, 'tools/call', { arguments: {} })).error.code, RPC_ERROR.invalid_params, 'tools/call without a tool name')
+eq((await rpc(READER, 'tools/call', { name: 'uninstall_service', arguments: {} })).error.code, RPC_ERROR.invalid_params, 'unknown tool (no uninstall capability)')
+eq(rejectedAudit(), ['mcp', 'mcp-reader', 'rpc_error', 'invalid_params', 200, 'uninstall_service'], 'unknown tool is audited with the probed name')
+eq((await rpc(READER, 'tools/call', { name: 'get_service_status', arguments: ['mcp-svc'] })).error.code, RPC_ERROR.invalid_params, 'array arguments')
+eq(rejectedAudit(), ['mcp', 'mcp-reader', 'rpc_error', 'invalid_params', 200, 'get_service_status'], 'array arguments are audited')
+await rpc(READER, 'tools/call', { name: 'x'.repeat(5000), arguments: {} })
+eq(lastAudit().detail, 'x'.repeat(100), 'probed tool name is length-capped in the audit log')
 
 // --- list_services: buildServices() filtered by the token allowlist and denylist ---
 db.upsertService('mcp-svc', { group_name: 'g', managed: true })
@@ -127,12 +144,22 @@ ok(listedNames.includes('mcp-svc'), 'allowlisted service is listed: ' + listedNa
 ok(!listedNames.includes('tf-core'), 'denylisted service is never listed, even when allowlisted')
 ok(!listedNames.includes('mcp-unlisted-svc'), 'service outside the allowlist is never listed')
 ok(listedNames.every(n => ['mcp-svc', 'tf-core', 'mcp-agentic-svc'].includes(n)), 'only allowlisted names are listed: ' + listedNames)
-eq([lastAudit().token, lastAudit().action, lastAudit().result], ['mcp-reader', 'list', 'ok'], 'list_services is audited')
+eq([lastAudit().surface, lastAudit().token, lastAudit().action, lastAudit().result], ['mcp', 'mcp-reader', 'list', 'ok'], 'list_services is audited, tagged mcp')
 
 // --- get_service_status: same refusals as /v1, audited ---
 res = await callTool(READER, 'get_service_status', { name: 'mcp-unlisted-svc' })
 eq([res.isError, res.body.error], [true, "Not authorized for service 'mcp-unlisted-svc'"], 'status outside the allowlist')
-eq([lastAudit().action, lastAudit().service, lastAudit().result], ['status', 'mcp-unlisted-svc', 'forbidden'], 'status refusal is audited')
+eq([lastAudit().surface, lastAudit().action, lastAudit().service, lastAudit().result], ['mcp', 'status', 'mcp-unlisted-svc', 'forbidden'], 'status refusal via a shared /v1 handler is audited, tagged mcp')
+const v1Status = await router(new Request('http://x/v1/services/mcp-unlisted-svc/status', { headers: { authorization: `Bearer ${READER}` } }))
+eq([v1Status.status, lastAudit().surface, lastAudit().action, lastAudit().result], [403, 'v1', 'status', 'forbidden'], 'the same refusal via /v1 is tagged v1')
+
+// Concurrent requests on both surfaces: each entry keeps its own surface tag
+await Promise.all([
+	callTool(READER, 'get_service_status', { name: 'mcp-concurrent-a' }),
+	router(new Request('http://x/v1/services/mcp-concurrent-b/status', { headers: { authorization: `Bearer ${READER}` } })),
+])
+const concurrent = auditLines().slice(-2).map(l => `${l.service}:${l.surface}`).sort()
+eq(concurrent, ['mcp-concurrent-a:mcp', 'mcp-concurrent-b:v1'], 'surface tags do not leak between concurrent requests')
 res = await callTool(READER, 'get_service_status', { name: 'tf-core' })
 eq(res.isError, true, 'status on a denylisted name is refused')
 res = await callTool(READER, 'get_service_status', { name: 42 })
@@ -191,7 +218,7 @@ for (const bypass of [
 ]) {
 	res = await callTool(INSTALLER, 'configure_service', { name: 'mcp-agentic-svc', display: 'hijacked', ...bypass })
 	eq([res.isError, res.body.error], [true, "Service 'mcp-agentic-svc' is not in the 'agentic' group"], 'fence holds against ' + JSON.stringify(bypass))
-	eq([lastAudit().token, lastAudit().group_name, lastAudit().status], ['mcp-installer', 'agentic', 403], 'fence refusal is audited')
+	eq([lastAudit().surface, lastAudit().token, lastAudit().group_name, lastAudit().status], ['mcp', 'mcp-installer', 'agentic', 403], 'fence refusal is audited, tagged mcp')
 }
 const untouched = db.getService('mcp-agentic-svc')
 eq([untouched?.group_name, untouched?.display ?? null], ['other-group', null], 'refused configures must not change the row')

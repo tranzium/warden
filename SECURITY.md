@@ -43,7 +43,7 @@ A token's install/configure capability (`POST /v1/services`, `PATCH /v1/services
 
 A `canInstall: true` token remains SYSTEM-level remote-code-execution-equivalent for whatever service names it is provisioned for — same risk class as the dashboard's `services.install` (see Threat model above) — just fenced to one deliberately low-stakes group. Only provision `canInstall: true` for service names you would accept running arbitrary code as SYSTEM.
 
-`POST /mcp` (the MCP server, `src/mcp/`) is the same capability over JSON-RPC, not a second permission model: it runs `agentAuthMiddleware` and its tools call the `/v1` handlers in `src/routes/agentApi.ts`, so the allowlist, denylist, `canInstall` gate, hardcoded `agentic` group, dry-run-by-default restart, and audit log are identical. Audit entries do not record which of the two surfaces a call came through. There is no `Origin` check; a browser cannot attach the bearer token on its own, so DNS rebinding gains nothing without a leaked token.
+`POST /mcp` (the MCP server, `src/mcp/`) is the same capability over JSON-RPC, not a second permission model: it runs `agentAuthMiddleware` and its tools call the `/v1` handlers in `src/routes/agentApi.ts`, so the allowlist, denylist, `canInstall` gate, hardcoded `agentic` group, dry-run-by-default restart, and audit log are identical. Every audit entry carries `surface: "v1"` or `surface: "mcp"`; `/mcp` additionally audits `initialize`, `tools/list`, and every rejected envelope, method, or tool name (`action: "rpc_error"`, probed name in `detail`), so enumeration and probing leave a trace. There is no `Origin` check; a browser cannot attach the bearer token on its own, so DNS rebinding gains nothing without a leaked token.
 
 ## The Orbit consent screen
 

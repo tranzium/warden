@@ -51,7 +51,7 @@ Warden ships with two auth modes, controlled by `AUTH_MODE`:
 - **Auth**: `Authorization: Bearer <token>`, checked against a token file — not a dashboard login or Orbit token.
 - **Allowlist, not open**: each token maps to a fixed list of service names it may act on. A service outside that list (or not NSSM-managed) is refused. Taskflow's own rails (`tf-*`) and Warden itself are never restartable via this API, no matter what a token's config says.
 - **Dry-run by default**: without `?live=1`, `restart` reports what would happen (authorized, exists, current status) but does not touch the service. Add `?live=1` to actually restart it.
-- **Audit log**: every call — including auth failures — appends a JSON line to `AGENT_AUDIT_LOG_PATH` (default `./data/agent-audit.log`): timestamp, token name, action, service, result, HTTP status.
+- **Audit log**: every call — including auth failures — appends a JSON line to `AGENT_AUDIT_LOG_PATH` (default `./data/agent-audit.log`): timestamp, surface (`v1` or `mcp`), token name, action, service, result, HTTP status.
 
 Provision a token:
 

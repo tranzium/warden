@@ -5,6 +5,7 @@ import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, r
 import { logsPageHandler, logsDataHandler } from './routes/logs'
 import { logonLookupHandler, settingsPageHandler, settingsSaveHandler } from './routes/settings'
 import { agentAuthMiddleware, agentListHandler, agentStatusHandler, agentRestartHandler, agentInstallHandler, agentConfigureHandler } from './routes/agentApi'
+import { withAuditSurface } from './auth/agentAudit'
 import { mcpHandler } from './mcp/server'
 import { html404 } from './views/html'
 import { config } from './shared/config'
@@ -55,11 +56,14 @@ export async function router(req: Request): Promise<Response> {
 
 	// MCP server (JSON-RPC over Streamable HTTP) — same bearer-token auth and per-token scoping
 	// as /v1. POST only: no server-initiated SSE stream or sessions, so other methods get 405.
+	// Every audit entry written inside, auth failures included, is tagged surface 'mcp'.
 	if (pathname === '/mcp') {
 		if (method !== 'POST') return methodNotAllowed()
-		const agentAuth = await agentAuthMiddleware(req)
-		if (agentAuth instanceof Response) return agentAuth
-		return mcpHandler(agentAuth, req)
+		return withAuditSurface('mcp', async () => {
+			const agentAuth = await agentAuthMiddleware(req)
+			if (agentAuth instanceof Response) return agentAuth
+			return mcpHandler(agentAuth, req)
+		})
 	}
 
 	// Auth routes — no auth required
