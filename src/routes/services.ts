@@ -15,7 +15,7 @@ import {
 } from '../nssm/client'
 import { uninstallService } from '../nssm/uninstall'
 import { type AuthContext, hasPermission } from '../auth/middleware'
-import { isDenylisted, addServiceScope } from '../auth/agentTokens'
+import { isDenylisted, addServiceScope, findTokenByName } from '../auth/agentTokens'
 import { auditLog } from '../auth/agentAudit'
 import { ok, created, noContent, badRequest, forbidden, notFound, unprocessable, internalError } from '../shared/http'
 import { dashboardPage, type ServiceView } from '../views/dashboard'
@@ -86,8 +86,12 @@ export async function dashboardHandler(ctx: AuthContext): Promise<Response> {
 	// Pending requests are only ever shown to an operator who could act on them — the same
 	// grant the panel's Approve/Deny buttons are gated by in the dashboard view itself.
 	const accessRequests = hasPermission(ctx, 'services.install') ? listAccessRequests('pending') : []
+	// Flag which of those rows belong to a canInstall token, so the panel can warn the operator
+	// before they click Approve — approving one of these would also widen install/configure
+	// access, not just restart-level scope (see approveAccessRequestHandler below).
+	const canInstallTokens = new Set(accessRequests.filter(r => findTokenByName(r.token_name)?.canInstall).map(r => r.token_name))
 
-	return dashboardPage(services, accessRequests, ctx.grants, {
+	return dashboardPage(services, accessRequests, canInstallTokens, ctx.grants, {
 		userName: ctx.user.email,
 		grants: ctx.grants,
 	})
@@ -371,22 +375,45 @@ function findAccessRequest(id: string) {
 // request decided. isDenylisted is re-checked here as defense in depth: a denylisted target
 // should never have reached a pending row (requestAccessHandler refuses it before insert), but
 // the fence must hold even if that invariant were ever broken upstream.
+//
+// A token carrying canInstall is refused outright, regardless of the denylist outcome: this
+// self-service path grants a service name into the same services array isAllowedToInstall reads,
+// so for a canInstall token, "restart scope" and "install/configure scope" are the same grant.
+// Approving here would silently also let the token install a brand-new service under this name,
+// or configure it if it is later tagged group_name 'agentic' — never what a restart-only request
+// is asking for. The row is left pending so the operator still has to make an explicit, separate
+// decision outside this flow (scripts/agent-token.ts) rather than this handler deciding for them.
 export async function approveAccessRequestHandler(ctx: AuthContext, id: string): Promise<Response> {
 	if (!hasPermission(ctx, 'services.install')) return forbidden()
 
 	const request = findAccessRequest(id)
-	if (!request) return notFound(`Access request '${id}' not found`)
-	if (request.status !== 'pending') return badRequest(`Access request '${id}' is already ${request.status}`)
+	if (!request) {
+		auditLog({ token: 'unknown', action: 'access_request', service: null, detail: ctx.user.email, result: 'not_found', status: 404 })
+		return notFound(`Access request '${id}' not found`)
+	}
+	if (request.status !== 'pending') {
+		auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, detail: ctx.user.email, result: 'already_decided', status: 400 })
+		return badRequest(`Access request '${id}' is already ${request.status}`)
+	}
 
 	if (isDenylisted(request.service_name)) {
+		auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, detail: ctx.user.email, result: 'denylisted', status: 400 })
 		return badRequest(`Service '${request.service_name}' can never be granted`)
+	}
+
+	const tokenRecord = findTokenByName(request.token_name)
+	if (tokenRecord?.canInstall) {
+		auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, detail: ctx.user.email, result: 'can_install_blocked', status: 400 })
+		return badRequest(
+			`Token '${request.token_name}' has install capability; granting restart-scope through this path would also widen install/configure access to '${request.service_name}' — provision this by hand via scripts/agent-token.ts if that is genuinely intended`,
+		)
 	}
 
 	const grant = addServiceScope(request.token_name, request.service_name)
 	if (!grant.ok) return internalError(grant.error ?? 'Failed to grant access')
 
 	const decided = decideAccessRequest(id, 'approved', ctx.user.email)
-	auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, result: 'approved', status: 200 })
+	auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, detail: ctx.user.email, result: 'approved', status: 200 })
 	return ok(decided)
 }
 
@@ -394,10 +421,16 @@ export async function denyAccessRequestHandler(ctx: AuthContext, id: string): Pr
 	if (!hasPermission(ctx, 'services.install')) return forbidden()
 
 	const request = findAccessRequest(id)
-	if (!request) return notFound(`Access request '${id}' not found`)
-	if (request.status !== 'pending') return badRequest(`Access request '${id}' is already ${request.status}`)
+	if (!request) {
+		auditLog({ token: 'unknown', action: 'access_request', service: null, detail: ctx.user.email, result: 'not_found', status: 404 })
+		return notFound(`Access request '${id}' not found`)
+	}
+	if (request.status !== 'pending') {
+		auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, detail: ctx.user.email, result: 'already_decided', status: 400 })
+		return badRequest(`Access request '${id}' is already ${request.status}`)
+	}
 
 	const decided = decideAccessRequest(id, 'denied', ctx.user.email)
-	auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, result: 'denied', status: 200 })
+	auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, detail: ctx.user.email, result: 'denied', status: 200 })
 	return ok(decided)
 }

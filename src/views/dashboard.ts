@@ -227,12 +227,20 @@ function renderGroup(groupName: string, services: ServiceView[], grants: Record<
 // Pending requests awaiting a human decision — token name, requested service, reason and
 // timestamp, with Approve/Deny buttons. Gated the same way the rest of the privileged dashboard
 // surface is gated: no grants['services.install'], no panel, regardless of whether any rows exist.
-function renderAccessRequests(requests: AccessRequestRow[], grants: Record<string, boolean>): string {
+// canInstallTokens names the subset of these requesters that carry canInstall: for those, the
+// service-scope grant this panel's Approve button would make doubles as an install/configure
+// grant (see approveAccessRequestHandler), so the row is flagged before the operator can click it.
+function renderAccessRequests(requests: AccessRequestRow[], canInstallTokens: Set<string>, grants: Record<string, boolean>): string {
 	if (!grants['services.install'] || requests.length === 0) return ''
 
-	const rows = requests.map(r => `
+	const rows = requests.map(r => {
+		const flagged = canInstallTokens.has(r.token_name)
+		const flag = flagged
+			? ` <span class="badge bg-warning text-dark" title="This token has install capability — approving would also widen install/configure access to '${esc(r.service_name)}'">canInstall</span>`
+			: ''
+		return `
 		<tr data-request-id="${esc(r.id)}">
-			<td>${esc(r.token_name)}</td>
+			<td>${esc(r.token_name)}${flag}</td>
 			<td>${esc(r.service_name)}</td>
 			<td>${esc(r.reason ?? '')}</td>
 			<td>${esc(r.requested_at ?? '')}</td>
@@ -242,7 +250,8 @@ function renderAccessRequests(requests: AccessRequestRow[], grants: Record<strin
 					<button type="button" class="btn btn-outline-danger access-request-btn" data-id="${esc(r.id)}" data-action="deny">Deny</button>
 				</div>
 			</td>
-		</tr>`).join('')
+		</tr>`
+	}).join('')
 
 	return `
 		<div id="access-requests-panel" class="mb-4 p-3 rounded-3 border">
@@ -361,7 +370,7 @@ function renderServiceModal(groups: string[]): string {
 	</div>`
 }
 
-export function dashboardPage(services: ServiceView[], accessRequests: AccessRequestRow[], grants: Record<string, boolean>, opts: PageOpts): Response {
+export function dashboardPage(services: ServiceView[], accessRequests: AccessRequestRow[], canInstallTokens: Set<string>, grants: Record<string, boolean>, opts: PageOpts): Response {
 	// Pulse counts cover visible services only — hidden ones are deliberately out of sight
 	const visible = services.filter(s => !s.hidden)
 	const pulse: PulseData = {
@@ -410,7 +419,7 @@ export function dashboardPage(services: ServiceView[], accessRequests: AccessReq
 
 	const body = `
 		${renderToolbar(pulse, groupNames, grants)}
-		${renderAccessRequests(accessRequests, grants)}
+		${renderAccessRequests(accessRequests, canInstallTokens, grants)}
 		<div id="services-container">
 			${groupHtml}
 		</div>

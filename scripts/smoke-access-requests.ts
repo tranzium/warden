@@ -3,8 +3,10 @@
 // of a pending row, a new row kept on re-request after denial), the requestAccessHint field on
 // a plain scope-miss 403 (and its absence on a denylist 403), addServiceScope's token-file write
 // taking effect with no restart and no caching layer to clear, the dashboard approve/deny routes
-// (permission gate, defense-in-depth denylist re-check, surface 'dashboard' audit tag through the
-// production router), and the request_access MCP tool as a thin wrapper over the same path.
+// (permission gate, defense-in-depth denylist re-check, the canInstall refusal that keeps this
+// path restart-scope-only, audit coverage for every refusal path including the operator identity
+// in detail, surface 'dashboard' audit tag through the production router), and the request_access
+// MCP tool as a thin wrapper over the same path.
 // Run via `bun run scripts/smoke-access-requests.ts`.
 export {} // dynamic imports below do not mark this as a module on their own
 
@@ -34,14 +36,20 @@ const TOKEN_NAME = 'access-agent'
 // isolation check below exercise the real token file (two entries), not a mock of one.
 const TOKEN2 = 'wat_smoke_access_requests_2'
 const TOKEN_NAME2 = 'access-agent-2'
+// A third token, carrying canInstall: true — exercises the guard that keeps the self-service
+// path restart-scope-only. For a canInstall token, addServiceScope's single services array is
+// also what isAllowedToInstall reads, so approving a plain restart request here must be refused.
+const TOKEN3 = 'wat_smoke_access_requests_3'
+const TOKEN_NAME3 = 'access-agent-caninstall'
 
-function writeTokens(serviceList: string[], otherServiceList: string[] = []): void {
+function writeTokens(serviceList: string[], otherServiceList: string[] = [], installServiceList: string[] = []): void {
 	writeFileSync(
 		process.env.AGENT_TOKENS_PATH!,
 		JSON.stringify({
 			tokens: [
 				{ name: TOKEN_NAME, token: TOKEN, services: serviceList },
 				{ name: TOKEN_NAME2, token: TOKEN2, services: otherServiceList },
+				{ name: TOKEN_NAME3, token: TOKEN3, services: installServiceList, canInstall: true },
 			],
 		}),
 	)
@@ -60,6 +68,17 @@ function caller2() {
 	const resolved = agentTokens.resolveAgentToken(TOKEN2)
 	if (!resolved) throw new Error('test setup: second token did not resolve')
 	return resolved
+}
+
+function caller3() {
+	const resolved = agentTokens.resolveAgentToken(TOKEN3)
+	if (!resolved) throw new Error('test setup: third (canInstall) token did not resolve')
+	return resolved
+}
+
+function tokenServices(name: string): string[] {
+	const parsed = JSON.parse(readFileSync(process.env.AGENT_TOKENS_PATH!, 'utf8')) as { tokens: Array<{ name: string; services: string[] }> }
+	return parsed.tokens.find(t => t.name === name)?.services ?? []
 }
 
 const requestReq = (body: Record<string, unknown>) => new Request('http://x/v1/access-requests', { method: 'POST', body: JSON.stringify(body) })
@@ -134,6 +153,7 @@ if (decideResp.status !== 200) throw new Error('deny must succeed, got ' + decid
 const denied = (await decideResp.json()) as { status: string; decided_by: string }
 if (denied.status !== 'denied') throw new Error('row must be denied: ' + JSON.stringify(denied))
 if (denied.decided_by !== 'approver@x') throw new Error('decided_by must be the operator identity: ' + JSON.stringify(denied))
+if (lastAudit().detail !== 'approver@x') throw new Error('deny audit entry must carry the operator identity in detail: ' + JSON.stringify(lastAudit()))
 
 r = await agentApi.requestAccessHandler(caller(), requestReq({ service: 'pending-svc' }))
 if (r.status !== 201) throw new Error('re-request after denial must succeed, got ' + r.status)
@@ -169,6 +189,8 @@ let approveResp = await services.approveAccessRequestHandler(operatorCtx({ 'serv
 if (approveResp.status !== 200) throw new Error('approve must succeed, got ' + approveResp.status)
 const approved = (await approveResp.json()) as { status: string; decided_by: string }
 if (approved.status !== 'approved') throw new Error('row must be approved: ' + JSON.stringify(approved))
+if (lastAudit().result !== 'approved') throw new Error('approve audit entry must have result approved: ' + JSON.stringify(lastAudit()))
+if (lastAudit().detail !== 'approver@x') throw new Error('approve audit entry must carry the operator identity in detail: ' + JSON.stringify(lastAudit()))
 
 const fileAfterApprove = JSON.parse(readFileSync(process.env.AGENT_TOKENS_PATH!, 'utf8')) as { tokens: Array<{ name: string; services: string[] }> }
 const entryAfterApprove = fileAfterApprove.tokens.find(t => t.name === TOKEN_NAME)
@@ -181,12 +203,18 @@ if (!agentApi.isAllowed(freshCaller, 'pending-svc')) throw new Error('isAllowed 
 r = await agentApi.agentStatusHandler(freshCaller, 'pending-svc')
 if (r.status === 403) throw new Error('status must no longer be 403 for the newly granted service: ' + JSON.stringify(await r.json()))
 
-// --- Approving an already-decided request is rejected, not silently repeated ---
+// --- Approving an already-decided request is rejected, not silently repeated, and audited ---
 let reapprove = await services.approveAccessRequestHandler(operatorCtx({ 'services.install': true }), afterDenial.id)
 if (reapprove.status !== 400) throw new Error('re-deciding an already-decided request must be rejected, got ' + reapprove.status)
+if (lastAudit().result !== 'already_decided') throw new Error('re-deciding an already-decided request must audit already_decided, got ' + JSON.stringify(lastAudit()))
+
+// --- Approving an unknown request id is a 404, audited rather than silent ---
+let notFoundApprove = await services.approveAccessRequestHandler(operatorCtx({ 'services.install': true }), 'does-not-exist-id')
+if (notFoundApprove.status !== 404) throw new Error('approve on an unknown id must be 404, got ' + notFoundApprove.status)
+if (lastAudit().result !== 'not_found') throw new Error('approve on an unknown id must audit not_found, got ' + JSON.stringify(lastAudit()))
 
 // --- Defense in depth: approve must refuse a denylisted target even if a row somehow reached
-// pending (bypassing the up-front check normally done by requestAccessHandler) ---
+// pending (bypassing the up-front check normally done by requestAccessHandler), and audit the hit ---
 const sneaked = db.createAccessRequest(TOKEN_NAME, 'tf-sneaky', 'bypass attempt')
 let sneakyApprove = await services.approveAccessRequestHandler(operatorCtx({ 'services.install': true }), sneaked.id)
 if (sneakyApprove.status !== 400) throw new Error('approve must refuse a denylisted target even if it reached pending, got ' + sneakyApprove.status)
@@ -196,12 +224,60 @@ const fileAfterSneaky = JSON.parse(readFileSync(process.env.AGENT_TOKENS_PATH!, 
 if (fileAfterSneaky.tokens.find(t => t.name === TOKEN_NAME)?.services.some(s => s.toLowerCase() === 'tf-sneaky')) {
 	throw new Error('approve must never write a denylisted name into the token file')
 }
+if (lastAudit().result !== 'denylisted') throw new Error('the denylist refusal must leave an audit trace, got ' + JSON.stringify(lastAudit()))
+if (lastAudit().detail !== 'approver@x') throw new Error('the denylist refusal audit entry must carry the operator identity in detail: ' + JSON.stringify(lastAudit()))
+
+// --- canInstall token: approving a plain restart-scope request must be refused outright, the
+// row must stay pending, and addServiceScope must never run — this path must never widen
+// install/configure capability, only ever restart-level scope ---
+r = await agentApi.requestAccessHandler(caller3(), requestReq({ service: 'caninstall-target-svc', reason: 'restart only, please' }))
+if (r.status !== 201) throw new Error('a canInstall token must still be able to request access, got ' + r.status)
+const canInstallRow = (await r.json()) as { id: string }
+const servicesBeforeCanInstallApprove = tokenServices(TOKEN_NAME3)
+
+let canInstallApprove = await services.approveAccessRequestHandler(operatorCtx({ 'services.install': true }), canInstallRow.id)
+if (canInstallApprove.status !== 400) throw new Error('approving a canInstall token request must be refused, got ' + canInstallApprove.status)
+
+const canInstallRowAfter = db.listAccessRequests().find(row => row.id === canInstallRow.id)
+if (canInstallRowAfter?.status !== 'pending') throw new Error('a refused canInstall approval must leave the row pending: ' + JSON.stringify(canInstallRowAfter))
+
+const servicesAfterCanInstallApprove = tokenServices(TOKEN_NAME3)
+if (JSON.stringify(servicesAfterCanInstallApprove) !== JSON.stringify(servicesBeforeCanInstallApprove)) {
+	throw new Error(
+		'addServiceScope must never run for a refused canInstall approval: before=' +
+			JSON.stringify(servicesBeforeCanInstallApprove) +
+			' after=' +
+			JSON.stringify(servicesAfterCanInstallApprove),
+	)
+}
+if (servicesAfterCanInstallApprove.some(s => s.toLowerCase() === 'caninstall-target-svc')) {
+	throw new Error('a refused canInstall approval must never grant the requested service')
+}
+if (lastAudit().result !== 'can_install_blocked') throw new Error('the canInstall refusal must leave an audit trace, got ' + JSON.stringify(lastAudit()))
+if (lastAudit().detail !== 'approver@x') throw new Error('the canInstall refusal audit entry must carry the operator identity in detail: ' + JSON.stringify(lastAudit()))
+
+// A canInstall token denied through this path must never gain install/configure capability either
+if (agentTokens.isAllowedToInstall(caller3(), 'caninstall-target-svc')) {
+	throw new Error('a refused canInstall approval must never grant isAllowedToInstall-level access')
+}
 
 // --- Dashboard permission gating: services.install required for approve and deny alike ---
 let unauthorizedApprove = await services.approveAccessRequestHandler(operatorCtx({}), sneaked.id)
 if (unauthorizedApprove.status !== 403) throw new Error('approve without services.install must be 403, got ' + unauthorizedApprove.status)
 let unauthorizedDeny = await services.denyAccessRequestHandler(operatorCtx({}), sneaked.id)
 if (unauthorizedDeny.status !== 403) throw new Error('deny without services.install must be 403, got ' + unauthorizedDeny.status)
+
+// --- Deny: not-found and already-decided outcomes are audited too, same as approve ---
+let notFoundDeny = await services.denyAccessRequestHandler(operatorCtx({ 'services.install': true }), 'does-not-exist-id')
+if (notFoundDeny.status !== 404) throw new Error('deny on an unknown id must be 404, got ' + notFoundDeny.status)
+if (lastAudit().result !== 'not_found') throw new Error('deny on an unknown id must audit not_found, got ' + JSON.stringify(lastAudit()))
+
+// sneaked is still pending (its denylisted approve was refused above) — deny it now, then try again
+let firstDeny = await services.denyAccessRequestHandler(operatorCtx({ 'services.install': true }), sneaked.id)
+if (firstDeny.status !== 200) throw new Error('denying the still-pending sneaked row must succeed, got ' + firstDeny.status)
+let redenyAlreadyDecided = await services.denyAccessRequestHandler(operatorCtx({ 'services.install': true }), sneaked.id)
+if (redenyAlreadyDecided.status !== 400) throw new Error('re-deciding an already-decided row via deny must be rejected, got ' + redenyAlreadyDecided.status)
+if (lastAudit().result !== 'already_decided') throw new Error('re-deciding an already-decided row via deny must audit already_decided, got ' + JSON.stringify(lastAudit()))
 
 // --- End to end through the production router: session-cookie auth, surface tagged 'dashboard' ---
 const sid = db.createSession({
