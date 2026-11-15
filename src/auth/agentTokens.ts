@@ -58,6 +58,15 @@ export function isAllowedToInstall(caller: AgentToken, name: string): boolean {
 	return caller.services.some(s => s.toLowerCase() === name.toLowerCase())
 }
 
+// Read-only lookup by token name, for callers that need to inspect a token's record (for
+// example canInstall) before deciding whether to grant it something — no caching, same as
+// every other read in this module, so the result always reflects the file's current state.
+export function findTokenByName(name: string): AgentToken | null {
+	const entry = loadTokens().find(t => t.name === name)
+	if (!entry || typeof entry.name !== 'string' || !Array.isArray(entry.services)) return null
+	return { name: entry.name, services: entry.services, canInstall: entry.canInstall === true }
+}
+
 // The actual grant mechanism behind dashboard-approved access requests, replacing hand-editing
 // agent-tokens.json. Reads and writes the same file loadTokens reads — no caching anywhere in
 // this module, so the very next loadTokens() call (the next request, same process) sees the
