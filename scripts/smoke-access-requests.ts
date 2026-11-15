@@ -30,11 +30,20 @@ const { signSession } = await import('../src/auth/cookies')
 
 const TOKEN = 'wat_smoke_access_requests'
 const TOKEN_NAME = 'access-agent'
+// A second, independent token: its presence throughout the run lets the cross-token
+// isolation check below exercise the real token file (two entries), not a mock of one.
+const TOKEN2 = 'wat_smoke_access_requests_2'
+const TOKEN_NAME2 = 'access-agent-2'
 
-function writeTokens(serviceList: string[]): void {
+function writeTokens(serviceList: string[], otherServiceList: string[] = []): void {
 	writeFileSync(
 		process.env.AGENT_TOKENS_PATH!,
-		JSON.stringify({ tokens: [{ name: TOKEN_NAME, token: TOKEN, services: serviceList }] }),
+		JSON.stringify({
+			tokens: [
+				{ name: TOKEN_NAME, token: TOKEN, services: serviceList },
+				{ name: TOKEN_NAME2, token: TOKEN2, services: otherServiceList },
+			],
+		}),
 	)
 }
 writeTokens(['granted-svc'])
@@ -44,6 +53,12 @@ writeTokens(['granted-svc'])
 function caller() {
 	const resolved = agentTokens.resolveAgentToken(TOKEN)
 	if (!resolved) throw new Error('test setup: token did not resolve')
+	return resolved
+}
+
+function caller2() {
+	const resolved = agentTokens.resolveAgentToken(TOKEN2)
+	if (!resolved) throw new Error('test setup: second token did not resolve')
 	return resolved
 }
 
@@ -82,6 +97,36 @@ r = await agentApi.listAccessRequestsHandler(caller())
 if (r.status !== 200) throw new Error('list must be 200, got ' + r.status)
 const listed = ((await r.json()) as { requests: Array<{ service_name: string }> }).requests
 if (!listed.some(row => row.service_name === 'pending-svc')) throw new Error('list must include the pending request: ' + JSON.stringify(listed))
+
+// --- Cross-token isolation: GET /v1/access-requests never returns another token's rows ---
+// This is the brief's own highest-risk invariant for this route ("never another token's"), so
+// it is exercised with a second, independently provisioned token, not a filter on one token's
+// own rows.
+r = await agentApi.requestAccessHandler(caller2(), requestReq({ service: 'second-token-svc', reason: 'belongs to access-agent-2' }))
+if (r.status !== 201) throw new Error('second token request must succeed, got ' + r.status)
+const secondTokenRow = (await r.json()) as { id: string; token_name: string }
+if (secondTokenRow.token_name !== TOKEN_NAME2) throw new Error('second token row must be attributed to the second token: ' + JSON.stringify(secondTokenRow))
+
+r = await agentApi.listAccessRequestsHandler(caller())
+const firstTokenList = ((await r.json()) as { requests: Array<{ id: string; token_name: string; service_name: string }> }).requests
+if (firstTokenList.some(row => row.token_name !== TOKEN_NAME)) {
+	throw new Error("GET /v1/access-requests for '" + TOKEN_NAME + "' must never include another token's row: " + JSON.stringify(firstTokenList))
+}
+if (firstTokenList.some(row => row.id === secondTokenRow.id || row.service_name === 'second-token-svc')) {
+	throw new Error("the first token must never see the second token's request: " + JSON.stringify(firstTokenList))
+}
+
+r = await agentApi.listAccessRequestsHandler(caller2())
+const secondTokenList = ((await r.json()) as { requests: Array<{ id: string; token_name: string; service_name: string }> }).requests
+if (secondTokenList.some(row => row.token_name !== TOKEN_NAME2)) {
+	throw new Error("GET /v1/access-requests for '" + TOKEN_NAME2 + "' must never include another token's row: " + JSON.stringify(secondTokenList))
+}
+if (secondTokenList.some(row => row.id === firstRow.id || row.service_name === 'pending-svc')) {
+	throw new Error("the second token must never see the first token's request: " + JSON.stringify(secondTokenList))
+}
+if (!secondTokenList.some(row => row.id === secondTokenRow.id)) {
+	throw new Error("the second token's own list must include its own request: " + JSON.stringify(secondTokenList))
+}
 
 // --- Deny the pending row, then re-request after denial: a new row, history kept ---
 let decideResp = await services.denyAccessRequestHandler(operatorCtx({ 'services.install': true }), firstRow.id)
