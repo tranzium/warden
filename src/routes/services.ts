@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { listServices, getService, unregisterService, upsertService } from '../db/client'
+import { listServices, getService, unregisterService, upsertService, listAccessRequests, decideAccessRequest } from '../db/client'
 import {
 	nssmStart,
 	nssmStop,
@@ -15,6 +15,8 @@ import {
 } from '../nssm/client'
 import { uninstallService } from '../nssm/uninstall'
 import { type AuthContext, hasPermission } from '../auth/middleware'
+import { isDenylisted, addServiceScope } from '../auth/agentTokens'
+import { auditLog } from '../auth/agentAudit'
 import { ok, created, noContent, badRequest, forbidden, notFound, unprocessable, internalError } from '../shared/http'
 import { dashboardPage, type ServiceView } from '../views/dashboard'
 import { config } from '../shared/config'
@@ -81,8 +83,11 @@ export async function dashboardHandler(ctx: AuthContext): Promise<Response> {
 	}
 
 	const services = await buildServices()
+	// Pending requests are only ever shown to an operator who could act on them — the same
+	// grant the panel's Approve/Deny buttons are gated by in the dashboard view itself.
+	const accessRequests = hasPermission(ctx, 'services.install') ? listAccessRequests('pending') : []
 
-	return dashboardPage(services, ctx.grants, {
+	return dashboardPage(services, accessRequests, ctx.grants, {
 		userName: ctx.user.email,
 		grants: ctx.grants,
 	})
@@ -353,4 +358,46 @@ export async function performUpdate(name: string, req: Request, opts?: { require
 export async function updateHandler(ctx: AuthContext, name: string, req: Request): Promise<Response> {
 	if (!hasPermission(ctx, 'services.register')) return forbidden()
 	return performUpdate(name, req)
+}
+
+// Shared lookup for the approve/deny handlers below: listAccessRequests() with no status filter
+// is the only read path the data model offers for a single row by id, so both handlers find
+// their own request in it rather than introducing a getter the brief did not ask for.
+function findAccessRequest(id: string) {
+	return listAccessRequests().find(r => r.id === id)
+}
+
+// Grants access via addServiceScope — the actual write to agent-tokens.json — then marks the
+// request decided. isDenylisted is re-checked here as defense in depth: a denylisted target
+// should never have reached a pending row (requestAccessHandler refuses it before insert), but
+// the fence must hold even if that invariant were ever broken upstream.
+export async function approveAccessRequestHandler(ctx: AuthContext, id: string): Promise<Response> {
+	if (!hasPermission(ctx, 'services.install')) return forbidden()
+
+	const request = findAccessRequest(id)
+	if (!request) return notFound(`Access request '${id}' not found`)
+	if (request.status !== 'pending') return badRequest(`Access request '${id}' is already ${request.status}`)
+
+	if (isDenylisted(request.service_name)) {
+		return badRequest(`Service '${request.service_name}' can never be granted`)
+	}
+
+	const grant = addServiceScope(request.token_name, request.service_name)
+	if (!grant.ok) return internalError(grant.error ?? 'Failed to grant access')
+
+	const decided = decideAccessRequest(id, 'approved', ctx.user.email)
+	auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, result: 'approved', status: 200 })
+	return ok(decided)
+}
+
+export async function denyAccessRequestHandler(ctx: AuthContext, id: string): Promise<Response> {
+	if (!hasPermission(ctx, 'services.install')) return forbidden()
+
+	const request = findAccessRequest(id)
+	if (!request) return notFound(`Access request '${id}' not found`)
+	if (request.status !== 'pending') return badRequest(`Access request '${id}' is already ${request.status}`)
+
+	const decided = decideAccessRequest(id, 'denied', ctx.user.email)
+	auditLog({ token: request.token_name, action: 'access_request', service: request.service_name, result: 'denied', status: 200 })
+	return ok(decided)
 }

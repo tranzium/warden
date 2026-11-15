@@ -1,6 +1,6 @@
 import { auditLog } from '../auth/agentAudit'
 import { type AgentToken } from '../auth/agentTokens'
-import { agentConfigureHandler, agentInstallHandler, agentRestartHandler, agentStatusHandler, isAllowed } from '../routes/agentApi'
+import { agentConfigureHandler, agentInstallHandler, agentRestartHandler, agentStatusHandler, isAllowed, requestAccessHandler } from '../routes/agentApi'
 import { buildServices } from '../routes/services'
 import { ok } from '../shared/http'
 
@@ -101,6 +101,19 @@ export const MCP_TOOLS: readonly McpTool[] = [
 			required: ['name', 'program'],
 		},
 		call: (caller, args) => agentInstallHandler(caller, jsonRequest('/v1/services', 'POST', args)),
+	},
+	{
+		name: 'request_access',
+		description: 'Request access to a service not currently on this token\'s allowlist. Queues a request for an operator to approve or deny on the dashboard; does not grant access itself.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				service: nameSchema,
+				reason: { type: 'string', description: 'Optional context for the approving operator' },
+			},
+			required: ['service'],
+		},
+		call: (caller, args) => requestAccessHandler(caller, jsonRequest('/v1/access-requests', 'POST', args)),
 	},
 ]
 

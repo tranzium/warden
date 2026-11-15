@@ -1,10 +1,10 @@
 import { resolve } from 'node:path'
 import { authMiddleware } from './auth/middleware'
 import { loginHandler, localLoginPostHandler, loginStartHandler, callbackHandler, logoutHandler, consentGetHandler, consentPostHandler } from './routes/auth'
-import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, restartHandler, installHandler, uninstallHandler, unregisterHandler, updateHandler } from './routes/services'
+import { dashboardHandler, listHandler, getHandler, startHandler, stopHandler, restartHandler, installHandler, uninstallHandler, unregisterHandler, updateHandler, approveAccessRequestHandler, denyAccessRequestHandler } from './routes/services'
 import { logsPageHandler, logsDataHandler } from './routes/logs'
 import { logonLookupHandler, settingsPageHandler, settingsSaveHandler } from './routes/settings'
-import { agentAuthMiddleware, agentListHandler, agentStatusHandler, agentRestartHandler, agentInstallHandler, agentConfigureHandler } from './routes/agentApi'
+import { agentAuthMiddleware, agentListHandler, agentStatusHandler, agentRestartHandler, agentInstallHandler, agentConfigureHandler, requestAccessHandler, listAccessRequestsHandler } from './routes/agentApi'
 import { withAuditSurface } from './auth/agentAudit'
 import { mcpHandler } from './mcp/server'
 import { html404 } from './views/html'
@@ -41,6 +41,8 @@ export async function router(req: Request): Promise<Response> {
 
 		if (pathname === '/v1/services' && method === 'GET') return agentListHandler(caller)
 		if (pathname === '/v1/services' && method === 'POST') return agentInstallHandler(caller, req)
+		if (pathname === '/v1/access-requests' && method === 'POST') return requestAccessHandler(caller, req)
+		if (pathname === '/v1/access-requests' && method === 'GET') return listAccessRequestsHandler(caller)
 
 		const agentMatch = pathname.match(/^\/v1\/services\/([^/]+)(\/.*)?$/)
 		if (agentMatch) {
@@ -86,6 +88,17 @@ export async function router(req: Request): Promise<Response> {
 
 	// Dashboard
 	if (pathname === '/' && method === 'GET') return dashboardHandler(ctx)
+
+	// Access-request approve/deny: dashboard-session-authenticated, not agent-token, so audited
+	// under its own surface the same way /mcp is — never mislabeled as a /v1 call.
+	const accessRequestMatch = pathname.match(/^\/access-requests\/([^/]+)\/(approve|deny)$/)
+	if (accessRequestMatch && method === 'POST') {
+		const id = decodeURIComponent(accessRequestMatch[1]!)
+		const action = accessRequestMatch[2]
+		return withAuditSurface('dashboard', () =>
+			action === 'approve' ? approveAccessRequestHandler(ctx, id) : denyAccessRequestHandler(ctx, id),
+		)
+	}
 
 	// Services JSON API
 	if (pathname === '/services' && method === 'GET') return listHandler(ctx)

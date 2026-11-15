@@ -757,6 +757,32 @@
 			})
 	}
 
+	function decideAccessRequest(id, action) {
+		fetch('/access-requests/' + encodeURIComponent(id) + '/' + action, {
+			method: 'POST',
+			headers: { Accept: 'application/json' },
+		})
+			.then(function (res) {
+				if (res.status === 401) {
+					window.location.href = '/login'
+					return
+				}
+				if (res.status === 403) {
+					showToast('Permission denied', 'danger')
+					return
+				}
+				if (!res.ok) {
+					showToast('Failed to ' + action + ' access request', 'danger')
+					return
+				}
+				showToast('Access request ' + (action === 'approve' ? 'approved' : 'denied'), 'success')
+				window.location.reload()
+			})
+			.catch(function () {
+				showToast('Request failed — check connection', 'danger')
+			})
+	}
+
 	function uninstallService(name, label) {
 		var typed = prompt(
 			'This will PERMANENTLY remove the Windows service "' + label + '".\n' +
@@ -922,6 +948,13 @@
 				var delConfirm = deleteBtn.dataset.confirm
 				if (delConfirm && !confirm(delConfirm)) return
 				deleteService(deleteBtn.dataset.service, deleteBtn.dataset.display || deleteBtn.dataset.service)
+				return
+			}
+
+			var accessRequestBtn = e.target.closest('.access-request-btn')
+			if (accessRequestBtn) {
+				e.preventDefault()
+				decideAccessRequest(accessRequestBtn.dataset.id, accessRequestBtn.dataset.action)
 				return
 			}
 		})

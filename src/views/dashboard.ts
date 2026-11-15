@@ -1,5 +1,6 @@
 import { page, esc, type PageOpts } from './html'
 import type { ServiceState } from '../nssm/client'
+import type { AccessRequestRow } from '../db/client'
 import { config } from '../shared/config'
 
 export interface ServiceView {
@@ -223,6 +224,38 @@ function renderGroup(groupName: string, services: ServiceView[], grants: Record<
 		</div>`
 }
 
+// Pending requests awaiting a human decision — token name, requested service, reason and
+// timestamp, with Approve/Deny buttons. Gated the same way the rest of the privileged dashboard
+// surface is gated: no grants['services.install'], no panel, regardless of whether any rows exist.
+function renderAccessRequests(requests: AccessRequestRow[], grants: Record<string, boolean>): string {
+	if (!grants['services.install'] || requests.length === 0) return ''
+
+	const rows = requests.map(r => `
+		<tr data-request-id="${esc(r.id)}">
+			<td>${esc(r.token_name)}</td>
+			<td>${esc(r.service_name)}</td>
+			<td>${esc(r.reason ?? '')}</td>
+			<td>${esc(r.requested_at ?? '')}</td>
+			<td class="text-end">
+				<div class="btn-group btn-group-sm">
+					<button type="button" class="btn btn-outline-success access-request-btn" data-id="${esc(r.id)}" data-action="approve">Approve</button>
+					<button type="button" class="btn btn-outline-danger access-request-btn" data-id="${esc(r.id)}" data-action="deny">Deny</button>
+				</div>
+			</td>
+		</tr>`).join('')
+
+	return `
+		<div id="access-requests-panel" class="mb-4 p-3 rounded-3 border">
+			<h5 class="mb-3">Pending access requests</h5>
+			<table class="table table-sm align-middle mb-0">
+				<thead>
+					<tr><th>Token</th><th>Service</th><th>Reason</th><th>Requested</th><th></th></tr>
+				</thead>
+				<tbody>${rows}</tbody>
+			</table>
+		</div>`
+}
+
 function renderToolbar(pulse: PulseData, groupNames: string[], grants: Record<string, boolean>): string {
 	const parts: string[] = []
 	if (pulse.running > 0) parts.push(`<span class="badge bg-success">${pulse.running} running</span>`)
@@ -328,7 +361,7 @@ function renderServiceModal(groups: string[]): string {
 	</div>`
 }
 
-export function dashboardPage(services: ServiceView[], grants: Record<string, boolean>, opts: PageOpts): Response {
+export function dashboardPage(services: ServiceView[], accessRequests: AccessRequestRow[], grants: Record<string, boolean>, opts: PageOpts): Response {
 	// Pulse counts cover visible services only — hidden ones are deliberately out of sight
 	const visible = services.filter(s => !s.hidden)
 	const pulse: PulseData = {
@@ -377,6 +410,7 @@ export function dashboardPage(services: ServiceView[], grants: Record<string, bo
 
 	const body = `
 		${renderToolbar(pulse, groupNames, grants)}
+		${renderAccessRequests(accessRequests, grants)}
 		<div id="services-container">
 			${groupHtml}
 		</div>

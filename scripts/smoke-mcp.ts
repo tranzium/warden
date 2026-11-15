@@ -101,10 +101,10 @@ const notified = await post(READER, JSON.stringify({ jsonrpc: '2.0', method: 'no
 eq([notified.status, await notified.text()], [202, ''], 'notification is accepted with 202 and no body')
 eq(auditLines().length, linesBeforeQuiet, 'ping and notifications are not audited')
 
-// --- tools/list: exactly the five tools, nothing more ---
+// --- tools/list: exactly the six tools, nothing more ---
 const listed = await rpc(READER, 'tools/list')
 const tools = listed.result.tools as Array<{ name: string; description: string; inputSchema: { type: string } }>
-eq(tools.map(t => t.name).sort(), ['configure_service', 'get_service_status', 'install_service', 'list_services', 'restart_service'], 'tool names')
+eq(tools.map(t => t.name).sort(), ['configure_service', 'get_service_status', 'install_service', 'list_services', 'request_access', 'restart_service'], 'tool names')
 ok(tools.every(t => t.description && t.inputSchema.type === 'object'), 'every tool has a description and an object inputSchema')
 eq([lastAudit().surface, lastAudit().token, lastAudit().action, lastAudit().result], ['mcp', 'mcp-reader', 'tools_list', 'ok'], 'tools/list is audited')
 
