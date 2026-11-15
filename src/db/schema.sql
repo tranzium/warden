@@ -9,6 +9,17 @@ CREATE TABLE IF NOT EXISTS services (
 	created_at  TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS agent_access_requests (
+	id           TEXT PRIMARY KEY,
+	token_name   TEXT NOT NULL,
+	service_name TEXT NOT NULL,
+	status       TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'approved' | 'denied'
+	reason       TEXT,
+	requested_at TEXT DEFAULT (datetime('now')),
+	decided_at   TEXT,
+	decided_by   TEXT
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
 	id           TEXT PRIMARY KEY,
 	access_token TEXT NOT NULL,

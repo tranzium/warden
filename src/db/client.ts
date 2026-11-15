@@ -120,6 +120,66 @@ export function upsertService(
 	})
 }
 
+// --- Access requests ---
+
+export interface AccessRequestRow {
+	id: string
+	token_name: string
+	service_name: string
+	status: string
+	reason: string | null
+	requested_at: string
+	decided_at: string | null
+	decided_by: string | null
+}
+
+const getAccessRequestStmt = db.prepare<AccessRequestRow, [string]>('SELECT * FROM agent_access_requests WHERE id = ?')
+const getPendingAccessRequestStmt = db.prepare<AccessRequestRow, [string, string]>(
+	"SELECT * FROM agent_access_requests WHERE token_name = ? AND service_name = ? COLLATE NOCASE AND status = 'pending'",
+)
+const insertAccessRequestStmt = db.prepare<void, [string, string, string, string | null]>(
+	'INSERT INTO agent_access_requests (id, token_name, service_name, reason) VALUES (?, ?, ?, ?)',
+)
+const listAccessRequestsStmt = db.prepare<AccessRequestRow, []>('SELECT * FROM agent_access_requests ORDER BY requested_at DESC')
+const listAccessRequestsByStatusStmt = db.prepare<AccessRequestRow, [string]>(
+	'SELECT * FROM agent_access_requests WHERE status = ? ORDER BY requested_at DESC',
+)
+const listAccessRequestsForTokenStmt = db.prepare<AccessRequestRow, [string]>(
+	'SELECT * FROM agent_access_requests WHERE token_name = ? ORDER BY requested_at DESC',
+)
+const decideAccessRequestStmt = db.prepare<void, [string, string, string]>(
+	"UPDATE agent_access_requests SET status = ?, decided_by = ?, decided_at = datetime('now') WHERE id = ?",
+)
+
+// Denylist and already-granted checks are the caller's responsibility (routes/agentApi.ts):
+// by the time this runs, a row is always safe to have pending or inserted. This function only
+// owns the idempotency rule — an existing pending row for the same (token_name, service_name)
+// is returned as-is, never duplicated; a prior denied request does not block a new one.
+export function createAccessRequest(tokenName: string, serviceName: string, reason?: string): AccessRequestRow {
+	const pending = getPendingAccessRequestStmt.get(tokenName, serviceName)
+	if (pending) return pending
+
+	const id = crypto.randomUUID()
+	insertAccessRequestStmt.run(id, tokenName, serviceName, reason ?? null)
+	return getAccessRequestStmt.get(id)!
+}
+
+export function listAccessRequests(status?: 'pending' | 'approved' | 'denied'): AccessRequestRow[] {
+	return status ? listAccessRequestsByStatusStmt.all(status) : listAccessRequestsStmt.all()
+}
+
+export function listAccessRequestsForToken(tokenName: string): AccessRequestRow[] {
+	return listAccessRequestsForTokenStmt.all(tokenName)
+}
+
+export function decideAccessRequest(id: string, status: 'approved' | 'denied', decidedBy: string): AccessRequestRow | null {
+	const existing = getAccessRequestStmt.get(id)
+	if (!existing) return null
+
+	decideAccessRequestStmt.run(status, decidedBy, id)
+	return getAccessRequestStmt.get(id)!
+}
+
 // --- Sessions ---
 
 export interface SessionRow {

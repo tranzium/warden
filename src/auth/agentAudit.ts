@@ -5,7 +5,7 @@ import { config } from '../shared/config'
 
 export type AgentAuditEntry = {
 	token: string
-	action: 'auth' | 'list' | 'status' | 'restart' | 'install' | 'configure' | 'initialize' | 'tools_list' | 'rpc_error'
+	action: 'auth' | 'list' | 'status' | 'restart' | 'install' | 'configure' | 'initialize' | 'tools_list' | 'rpc_error' | 'access_request'
 	service: string | null
 	live?: boolean
 	group_name?: string
@@ -15,7 +15,7 @@ export type AgentAuditEntry = {
 	status: number
 }
 
-export type AuditSurface = 'v1' | 'mcp'
+export type AuditSurface = 'v1' | 'mcp' | 'dashboard'
 
 const surfaceStore = new AsyncLocalStorage<AuditSurface>()
 

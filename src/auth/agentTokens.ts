@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { config } from '../shared/config'
 import { isSelf } from '../nssm/client'
@@ -56,4 +56,40 @@ export function isAllowedToInstall(caller: AgentToken, name: string): boolean {
 	if (!caller.canInstall) return false
 	if (isDenylisted(name)) return false
 	return caller.services.some(s => s.toLowerCase() === name.toLowerCase())
+}
+
+// The actual grant mechanism behind dashboard-approved access requests, replacing hand-editing
+// agent-tokens.json. Reads and writes the same file loadTokens reads — no caching anywhere in
+// this module, so the very next loadTokens() call (the next request, same process) sees the
+// grant with no warden restart. Case-insensitive dedupe: a service already present under any
+// casing is left alone rather than duplicated in the array.
+export function addServiceScope(tokenName: string, serviceName: string): { ok: boolean; error?: string } {
+	let text: string
+	try {
+		text = readFileSync(config.agentTokensPath, 'utf8')
+	} catch (e) {
+		return { ok: false, error: `Failed to read token file: ${e instanceof Error ? e.message : String(e)}` }
+	}
+
+	let parsed: { tokens?: unknown }
+	try {
+		parsed = JSON.parse(text) as { tokens?: unknown }
+	} catch (e) {
+		return { ok: false, error: `Token file is not valid JSON: ${e instanceof Error ? e.message : String(e)}` }
+	}
+
+	const tokens = Array.isArray(parsed.tokens) ? (parsed.tokens as TokenFileEntry[]) : []
+	const entry = tokens.find(t => t.name === tokenName)
+	if (!entry) return { ok: false, error: `No token named '${tokenName}'` }
+
+	const alreadyPresent = entry.services.some(s => s.toLowerCase() === serviceName.toLowerCase())
+	if (!alreadyPresent) entry.services.push(serviceName)
+
+	try {
+		writeFileSync(config.agentTokensPath, JSON.stringify({ tokens }, null, '\t') + '\n')
+	} catch (e) {
+		return { ok: false, error: `Failed to write token file: ${e instanceof Error ? e.message : String(e)}` }
+	}
+
+	return { ok: true }
 }
