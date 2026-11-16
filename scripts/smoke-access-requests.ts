@@ -238,6 +238,13 @@ const servicesBeforeCanInstallApprove = tokenServices(TOKEN_NAME3)
 let canInstallApprove = await services.approveAccessRequestHandler(operatorCtx({ 'services.install': true }), canInstallRow.id)
 if (canInstallApprove.status !== 400) throw new Error('approving a canInstall token request must be refused, got ' + canInstallApprove.status)
 
+// The dashboard toast surfaces this body's "error" field verbatim (static/js/poll.js) — a bare
+// 400 with no readable message would leave the person clicking Approve with no explanation.
+const canInstallApproveBody = (await canInstallApprove.json()) as { error?: string }
+if (!canInstallApproveBody.error || !canInstallApproveBody.error.includes(TOKEN_NAME3) || !canInstallApproveBody.error.includes('caninstall-target-svc')) {
+	throw new Error('the canInstall refusal must return a readable explanation naming the token and service: ' + JSON.stringify(canInstallApproveBody))
+}
+
 const canInstallRowAfter = db.listAccessRequests().find(row => row.id === canInstallRow.id)
 if (canInstallRowAfter?.status !== 'pending') throw new Error('a refused canInstall approval must leave the row pending: ' + JSON.stringify(canInstallRowAfter))
 

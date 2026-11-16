@@ -772,8 +772,9 @@
 					return
 				}
 				if (!res.ok) {
-					showToast('Failed to ' + action + ' access request', 'danger')
-					return
+					return res.json().then(function (data) {
+						showToast((data && data.error) || 'Failed to ' + action + ' access request', 'danger')
+					})
 				}
 				showToast('Access request ' + (action === 'approve' ? 'approved' : 'denied'), 'success')
 				window.location.reload()
